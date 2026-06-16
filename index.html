@@ -564,22 +564,22 @@
 
     // ─── NOISE SUPPRESSION (Jitsi RNNoise) ──────────────────────────────────
     async function initNoiseSuppression() {
-      try {
-        window.__audioCtx = new AudioContext({ sampleRate: 48000 });
-        await window.__audioCtx.audioWorklet.addModule('https://cdn.jsdelivr.net/npm/@jitsi/rnnoise-wasm@0.0.7/dist/rnnoise-processor.js');
-        const source = window.__audioCtx.createMediaStreamSource(localStream);
-        const rnnode = new AudioWorkletNode(window.__audioCtx, 'rnnoise-processor');
-        const dest = window.__audioCtx.createMediaStreamDestination();
-        source.connect(rnnode);
-        rnnode.connect(dest);
-        noiseSuppressor = rnnode;
-        console.log('✅ Jitsi RNNoise active');
-        return dest.stream;
-      } catch(e) {
-        console.warn('⚠️ RNNoise не загрузился, fallback на встроенный', e);
-        return localStream;
-      }
+  try {
+    window.__audioCtx = new AudioContext({ sampleRate: 44100 });
+    await window.__audioCtx.audioWorklet.addModule('./rnnoise-processor.js');
+    const source = window.__audioCtx.createMediaStreamSource(localStream);
+    const rnnode = new AudioWorkletNode(window.__audioCtx, 'rnnoise-processor');
+    const dest = window.__audioCtx.createMediaStreamDestination();
+    source.connect(rnnode);
+    rnnode.connect(dest);
+    noiseSuppressor = rnnode;
+    console.log('✅ RNNoise active');
+    return dest.stream;
+   } catch(e) {
+    console.warn('⚠️ RNNoise не загрузился, fallback', e);
+    return localStream;
     }
+   }
 
     // ─── CALL ─────────────────────────────────────────────────────────────────
     window.joinCall = async function() {
@@ -596,7 +596,7 @@
 
       try {
         localStream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true, channelCount: 1, sampleRate: 48000 },
+          audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true, channelCount: 1},
           video: false
         });
       } catch(e) {
