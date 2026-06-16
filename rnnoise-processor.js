@@ -6,24 +6,20 @@ class RnnoiseProcessor extends AudioWorkletProcessor {
     super();
     this._ready = false;
     this._context = null;
-    this._wasm = null;
     this._buffer = new Float32Array(RNNOISE_SAMPLE_LENGTH);
-    this._init();
-  }
 
-  async _init() {
-    try {
-      const createRNNWasmModule = (await import('./rnnoise.js')).default;
-      const wasm = await createRNNWasmModule();
-      this._wasm = wasm;
-      this._rnnoise_create = wasm._rnnoise_create;
-      this._rnnoise_process_frame = wasm._rnnoise_process_frame;
-      this._rnnoise_destroy = wasm._rnnoise_destroy;
-      this._context = this._rnnoise_create();
-      this._ready = true;
-    } catch (e) {
-      console.error('Failed to init RNNoise in AudioWorklet', e);
-    }
+    // Принимаем wasm-модуль из основного потока
+    this.port.onmessage = (event) => {
+      if (event.data.type === 'wasm') {
+        const wasm = event.data.wasm;
+        this._rnnoise_create = wasm._rnnoise_create;
+        this._rnnoise_process_frame = wasm._rnnoise_process_frame;
+        this._rnnoise_destroy = wasm._rnnoise_destroy;
+        this._context = this._rnnoise_create();
+        this._ready = true;
+        console.log('✅ RNNoise ready inside AudioWorklet');
+      }
+    };
   }
 
   process(inputs, outputs) {
