@@ -568,15 +568,22 @@
     window.__audioCtx = new AudioContext({ sampleRate: 44100 });
     await window.__audioCtx.audioWorklet.addModule('./rnnoise-processor.js');
 
-    // Загружаем WASM‑модуль через rnnoise.js
+    // Загружаем WASM‑модуль
     const createRNNWasmModule = (await import('./rnnoise.mjs')).default;
     const wasm = await createRNNWasmModule();
 
     const source = window.__audioCtx.createMediaStreamSource(localStream);
     const rnnode = new AudioWorkletNode(window.__audioCtx, 'rnnoise-processor');
 
-    // Передаём WASM‑модуль в AudioWorklet
-    rnnode.port.postMessage({ type: 'wasm', wasm: wasm });
+    // Передаём только нужные функции (без промисов)
+    rnnode.port.postMessage({
+      type: 'wasm',
+      functions: {
+        _rnnoise_create: wasm._rnnoise_create,
+        _rnnoise_process_frame: wasm._rnnoise_process_frame,
+        _rnnoise_destroy: wasm._rnnoise_destroy
+      }
+    });
 
     const dest = window.__audioCtx.createMediaStreamDestination();
     source.connect(rnnode);
