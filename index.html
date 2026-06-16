@@ -4,10 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>виталик</title>
-
-  <!-- RNNoise WASM (внешнее шумоподавление) -->
-  <script src="https://cdn.jsdelivr.net/npm/@shiguredo/noise-suppression@latest/dist/noise_suppression.js">
-  </script>
+  <!-- RNNoise теперь грузится динамически в конце body, чтобы избежать ошибок MutationObserver -->
 
   <style>
     * {
@@ -909,8 +906,8 @@
         await initFirebase();
       }
 
-      // Проверяем, загрузилась ли RNNoise
-      checkRNNoise();
+      // Динамически загружаем RNNoise после того, как DOM готов
+      loadRNNoise();
 
       const saved = sessionStorage.getItem('voiceUser');
       if (saved) {
@@ -926,17 +923,42 @@
       return cfg.databaseURL && cfg.databaseURL.length > 5;
     }
 
-    function checkRNNoise() {
-      const loaded = typeof Shiguredo !== 'undefined' && typeof Shiguredo.NoiseSuppressionProcessor !== 'undefined';
-      if (loaded) {
+    // ─── ДИНАМИЧЕСКАЯ ЗАГРУЗКА RNNOISE ──────────────────────────────────────
+    function loadRNNoise() {
+      // Проверяем, не загружен ли уже
+      if (typeof Shiguredo !== 'undefined' && typeof Shiguredo.NoiseSuppressionProcessor !== 'undefined') {
+        updateRNNoiseStatus(true);
+        console.log('✅ RNNoise уже загружен');
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/@shiguredo/noise-suppression@latest/dist/noise_suppression.js';
+      script.async = true;
+      script.onload = () => {
+        console.log('✅ RNNoise загружен динамически');
+        updateRNNoiseStatus(true);
+      };
+      script.onerror = () => {
+        console.warn('⚠️ RNNoise не загрузился, используется браузерное шумоподавление');
+        updateRNNoiseStatus(false);
+      };
+      document.head.appendChild(script);
+    }
+
+    function updateRNNoiseStatus(active) {
+      if (active) {
         $nsStatus.classList.add('active');
         $nsStatus.querySelector('.dot-ns').style.background = 'var(--green)';
-        console.log('✅ RNNoise загружен');
       } else {
         $nsStatus.classList.remove('active');
         $nsStatus.querySelector('.dot-ns').style.background = 'var(--muted)';
-        console.warn('⚠️ RNNoise не загружен, используется браузерное шумоподавление');
       }
+    }
+
+    function checkRNNoise() {
+      const loaded = typeof Shiguredo !== 'undefined' && typeof Shiguredo.NoiseSuppressionProcessor !== 'undefined';
+      updateRNNoiseStatus(loaded);
       return loaded;
     }
 
@@ -1154,7 +1176,6 @@
 
     // ─── RNNOISE (ВНЕШНЕЕ ШУМОПОДАВЛЕНИЕ) ──────────────────────────────────
     async function initNoiseSuppression() {
-      // Проверяем, загружена ли RNNoise
       const loaded = checkRNNoise();
       if (!loaded) {
         console.warn('RNNoise не доступен, используем оригинальный поток');
@@ -1162,7 +1183,6 @@
       }
 
       try {
-        // Создаём процессор, если ещё нет
         if (!_rnnoiseProcessor) {
           _rnnoiseProcessor = new Shiguredo.NoiseSuppressionProcessor(_rnnoiseAssetsPath);
           console.log('🔇 RNNoise процессор создан');
@@ -1178,15 +1198,13 @@
         const processedTrack = await _rnnoiseProcessor.startProcessing(originalTrack);
         const processedStream = new MediaStream([processedTrack]);
         _rnnoiseActive = true;
-        $nsStatus.classList.add('active');
-        $nsStatus.querySelector('.dot-ns').style.background = 'var(--green)';
+        updateRNNoiseStatus(true);
         console.log('✅ RNNoise активен');
         return processedStream;
       } catch (e) {
         console.warn('❌ RNNoise не запустился, используем оригинальный поток:', e);
         _rnnoiseActive = false;
-        $nsStatus.classList.remove('active');
-        $nsStatus.querySelector('.dot-ns').style.background = 'var(--muted)';
+        updateRNNoiseStatus(false);
         return localStream;
       }
     }
@@ -1375,8 +1393,7 @@
         } catch (e) { console.warn('Ошибка остановки RNNoise:', e); }
         _rnnoiseProcessor = null;
         _rnnoiseActive = false;
-        $nsStatus.classList.remove('active');
-        $nsStatus.querySelector('.dot-ns').style.background = 'var(--muted)';
+        updateRNNoiseStatus(false);
       }
 
       if (roomRef && window._fb) {
@@ -1567,7 +1584,6 @@
     };
 
     // ─── EXPOSE GLOBALS ──────────────────────────────────────────────────────
-    // Чтобы onclick-ы в HTML видели функции
     window.doLogin = doLogin;
     window.doLogout = doLogout;
     window.openAvatarPanel = openAvatarPanel;
