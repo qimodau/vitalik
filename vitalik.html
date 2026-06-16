@@ -324,10 +324,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding-botto
     </div>
     <div class="field">
       <label>Пароль</label>
-      <div style="display:flex;gap:8px;align-items:center">
-        <input type="password" id="newAccPass" placeholder="придумай пароль" style="flex:1" />
-        <button type="button" onclick="togglePassVisibility()" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--muted)">👁️</button>
-      </div>
+      <input type="password" id="newAccPass" placeholder="придумай пароль" />
     </div>
     <div class="modal-err" id="managerErr"></div>
     <button class="btn-modal primary" onclick="createAccount()">Создать аккаунт</button>
@@ -684,7 +681,6 @@ window.joinCall = async function() {
   if (!isConfigured()) { showError('Настрой Firebase — читай инструкцию ниже.'); return; }
   if (!db) { showError('Firebase инициализируется, подожди секунду.'); return; }
 
-  // Сбрасываем предыдущую комнату, если она осталась
   if (roomRef) {
     try { window._fb.off(roomRef); } catch(e){}
     try { await window._fb.remove(roomRef); } catch(e){}
@@ -740,11 +736,9 @@ window.joinCall = async function() {
 let _signalingBusy = false;
 let _addedCandidates = new Set();
 
-// Вспомогательная функция для установки имени и аватарки собеседника
 async function setPeerNameAndAvatar(name) {
   $peerName.textContent = name;
   const av = document.getElementById('peerAvatar');
-  // Пытаемся загрузить аватарку из Firebase
   let avatarUrl = null;
   if (db) {
     try {
@@ -755,7 +749,6 @@ async function setPeerNameAndAvatar(name) {
   if (avatarUrl) {
     av.innerHTML = `<img src="${avatarUrl}" />`;
   } else {
-    // Инициалы
     av.innerHTML = `<span id="peerAvatarText">${name.slice(0,2).toUpperCase()}</span>`;
   }
 }
@@ -939,7 +932,6 @@ window.loadAvatar = async function(input) {
     document.getElementById('myAvatar').onclick = () => document.getElementById('avatarInput').click();
     localStorage.setItem('voiceAvatar', base64);
 
-    // Сохраняем аватарку в Firebase, если есть подключение и пользователь не админ
     if (db && currentUser && !currentUser.isAdmin) {
       try {
         await window._fb.set(window._fb.ref(db, `accounts/${currentUser.name}/avatar`), base64);
@@ -1050,18 +1042,6 @@ window.toggleRoomHint = function() {
   hint.style.display = open ? 'block' : 'none';
   btn.style.borderColor = open ? 'var(--accent)' : 'var(--muted)';
   btn.style.color = open ? 'var(--accent)' : 'var(--muted)';
-};
-
-window.togglePassVisibility = function() {
-  const inp = document.getElementById('newAccPass');
-  const btn = inp.nextElementSibling;
-  if (inp.type === 'password') {
-    inp.type = 'text';
-    btn.textContent = '🙈';
-  } else {
-    inp.type = 'password';
-    btn.textContent = '👁️';
-  }
 };
 </script>
 </body>
