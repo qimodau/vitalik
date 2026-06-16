@@ -1,11 +1,9 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>виталик</title>
-  <!-- RNNoise теперь грузится динамически в конце body, чтобы избежать ошибок MutationObserver -->
-
   <style>
     * {
       margin: 0;
@@ -233,10 +231,10 @@
     @keyframes pulse {
       0%,
       100% {
-        opacity: 1
+        opacity: 1;
       }
       50% {
-        opacity: 0.4
+        opacity: 0.4;
       }
     }
     .status-text {
@@ -743,7 +741,7 @@
         <div id="panelAvatarPreview" style="width:52px;height:52px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:600;flex-shrink:0"></div>
         <div style="flex:1;display:flex;flex-direction:column;gap:6px">
           <label for="panelAvatarInput" class="btn-modal ghost" style="cursor:pointer;text-align:center;padding:8px">Загрузить фото</label>
-          <input type="file" id="panelAvatarInput" accept="image/*" style="display:none" onchange="uploadPanelAvatar(this)">
+          <input type="file" id="panelAvatarInput" accept="image/*" style="display:none" onchange="uploadPanelAvatar(this)" />
           <button class="btn-modal ghost" style="padding:8px;font-size:12px;color:var(--red);border-color:rgba(224,64,64,0.3)" onclick="removePanelAvatar()">Удалить</button>
         </div>
       </div>
@@ -786,7 +784,7 @@
             <div class="avatar-upload-hint">📷</div>
           </div>
           <div class="avatar-name">Ты</div>
-          <input type="file" id="avatarInput" accept="image/*" style="display:none" onchange="loadAvatar(this)">
+          <input type="file" id="avatarInput" accept="image/*" style="display:none" onchange="loadAvatar(this)" />
         </div>
         <div class="sep-arrow">↔</div>
         <div class="avatar">
@@ -861,7 +859,8 @@
     let currentUser = null;
 
     // ─── RNNoise ──────────────────────────────────────────────────────────────
-    const _rnnoiseAssetsPath = 'https://cdn.jsdelivr.net/npm/@shiguredo/noise-suppression@latest/dist';
+    const RNNOISE_CDN = 'https://cdn.jsdelivr.net/npm/@shiguredo/noise-suppression@latest/dist/noise_suppression.js';
+    let NoiseSuppressionProcessor = null; // класс, загруженный динамически
     let _rnnoiseProcessor = null;
     let _rnnoiseActive = false;
 
@@ -906,8 +905,8 @@
         await initFirebase();
       }
 
-      // Динамически загружаем RNNoise после того, как DOM готов
-      loadRNNoise();
+      // Загружаем RNNoise (ES-модуль) динамически
+      await loadRNNoise();
 
       const saved = sessionStorage.getItem('voiceUser');
       if (saved) {
@@ -923,27 +922,30 @@
       return cfg.databaseURL && cfg.databaseURL.length > 5;
     }
 
-    // ─── ДИНАМИЧЕСКАЯ ЗАГРУЗКА RNNOISE ──────────────────────────────────────
-    function loadRNNoise() {
-      // Проверяем, не загружен ли уже
-      if (typeof Shiguredo !== 'undefined' && typeof Shiguredo.NoiseSuppressionProcessor !== 'undefined') {
-        updateRNNoiseStatus(true);
-        console.log('✅ RNNoise уже загружен');
-        return;
-      }
-
-      const script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/npm/@shiguredo/noise-suppression@latest/dist/noise_suppression.js';
-      script.async = true;
-      script.onload = () => {
-        console.log('✅ RNNoise загружен динамически');
-        updateRNNoiseStatus(true);
-      };
-      script.onerror = () => {
-        console.warn('⚠️ RNNoise не загрузился, используется браузерное шумоподавление');
+    // ─── ДИНАМИЧЕСКАЯ ЗАГРУЗКА RNNOISE (как ES-модуль) ─────────────────────
+    async function loadRNNoise() {
+      try {
+        const module = await import(RNNOISE_CDN);
+        // Ожидаем, что модуль экспортирует класс NoiseSuppressionProcessor
+        if (module.NoiseSuppressionProcessor) {
+          NoiseSuppressionProcessor = module.NoiseSuppressionProcessor;
+          updateRNNoiseStatus(true);
+          console.log('✅ RNNoise загружен как ES-модуль');
+        } else {
+          // fallback: возможно экспорт по умолчанию
+          if (module.default && module.default.NoiseSuppressionProcessor) {
+            NoiseSuppressionProcessor = module.default.NoiseSuppressionProcessor;
+            updateRNNoiseStatus(true);
+            console.log('✅ RNNoise загружен (default)');
+          } else {
+            throw new Error('Не найден NoiseSuppressionProcessor');
+          }
+        }
+      } catch (e) {
+        console.warn('⚠️ RNNoise не загрузился, используется браузерное шумоподавление:', e);
         updateRNNoiseStatus(false);
-      };
-      document.head.appendChild(script);
+        NoiseSuppressionProcessor = null;
+      }
     }
 
     function updateRNNoiseStatus(active) {
@@ -957,9 +959,7 @@
     }
 
     function checkRNNoise() {
-      const loaded = typeof Shiguredo !== 'undefined' && typeof Shiguredo.NoiseSuppressionProcessor !== 'undefined';
-      updateRNNoiseStatus(loaded);
-      return loaded;
+      return !!NoiseSuppressionProcessor;
     }
 
     // ─── AUTH UI ─────────────────────────────────────────────────────────────
@@ -1176,15 +1176,18 @@
 
     // ─── RNNOISE (ВНЕШНЕЕ ШУМОПОДАВЛЕНИЕ) ──────────────────────────────────
     async function initNoiseSuppression() {
-      const loaded = checkRNNoise();
-      if (!loaded) {
+      // Проверяем, загружен ли класс
+      if (!checkRNNoise()) {
         console.warn('RNNoise не доступен, используем оригинальный поток');
         return localStream;
       }
 
       try {
+        // Создаём процессор (assets будут загружены с того же CDN)
         if (!_rnnoiseProcessor) {
-          _rnnoiseProcessor = new Shiguredo.NoiseSuppressionProcessor(_rnnoiseAssetsPath);
+          // Путь к assets – та же директория, где лежит основной скрипт
+          const assetsPath = 'https://cdn.jsdelivr.net/npm/@shiguredo/noise-suppression@latest/dist';
+          _rnnoiseProcessor = new NoiseSuppressionProcessor(assetsPath);
           console.log('🔇 RNNoise процессор создан');
         }
 
