@@ -1,297 +1,137 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>виталик</title>
-<style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-:root {
-  --bg: #0e0e10; --surface: #18181b; --surface2: #222228;
-  --border: #2e2e35; --text: #efeff1; --muted: #848494;
-  --accent: #7c6af7; --accent-hover: #9b8fff;
-  --red: #e04040; --red-hover: #f05050;
-  --green: #3dba6d; --yellow: #e6a817; --radius: 12px;
-}
-body {
-  background: var(--bg); color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  min-height: 100vh; user-select: none;
-}
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>виталик</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #0e0e10; --surface: #18181b; --surface2: #222228;
+      --border: #2e2e35; --text: #efeff1; --muted: #848494;
+      --accent: #7c6af7; --accent-hover: #9b8fff;
+      --red: #e04040; --red-hover: #f05050;
+      --green: #3dba6d; --yellow: #e6a817; --radius: 12px;
+    }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100vh; user-select: none;
+    }
 
-/* ── TOP BAR ── */
-.topbar {
-  position: fixed; top: 0; left: 0; right: 0;
-  height: 52px; background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  display: flex; align-items: center;
-  padding: 0 20px; z-index: 100;
-  justify-content: space-between;
-}
-.topbar-logo { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
-.topbar-logo span { font-size: 20px; }
-.topbar-right { display: flex; align-items: center; gap: 10px; }
-.user-chip {
-  display: flex; align-items: center; gap: 8px;
-  background: var(--surface2); border: 1px solid var(--border);
-  border-radius: 20px; padding: 5px 12px 5px 8px;
-  cursor: pointer; transition: border-color 0.15s;
-  font-size: 13px; color: var(--text);
-}
-.user-chip:hover { border-color: var(--accent); }
-.user-avatar-sm {
-  width: 24px; height: 24px; border-radius: 50%;
-  background: var(--accent); display: flex;
-  align-items: center; justify-content: center;
-  font-size: 11px; font-weight: 600; color: #fff; flex-shrink: 0;
-}
-.admin-badge {
-  font-size: 10px; background: rgba(124,106,247,0.2);
-  color: var(--accent); border: 1px solid rgba(124,106,247,0.4);
-  border-radius: 4px; padding: 1px 5px; font-weight: 600;
-}
+    /* ── TOP BAR ── */
+    .topbar { position: fixed; top: 0; left: 0; right: 0; height: 52px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; z-index: 100; justify-content: space-between; }
+    .topbar-logo { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    .topbar-logo span { font-size: 20px; }
+    .topbar-right { display: flex; align-items: center; gap: 10px; }
+    .user-chip { display: flex; align-items: center; gap: 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 5px 12px 5px 8px; cursor: pointer; transition: border-color 0.15s; font-size: 13px; color: var(--text); }
+    .user-chip:hover { border-color: var(--accent); }
+    .user-avatar-sm { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #fff; flex-shrink: 0; }
+    .admin-badge { font-size: 10px; background: rgba(124,106,247,0.2); color: var(--accent); border: 1px solid rgba(124,106,247,0.4); border-radius: 4px; padding: 1px 5px; font-weight: 600; }
 
-/* ── MAIN ── */
-.main {
-  padding-top: 72px;
-  min-height: 100vh; display: flex;
-  flex-direction: column; align-items: center;
-  justify-content: center;
-}
-.wrap {
-  width: 100%; max-width: 420px;
-  padding: 8px 20px 32px;
-  display: flex; flex-direction: column;
-  align-items: center; gap: 20px;
-}
-.header { text-align: center; }
-.logo {
-  width: 56px; height: 56px; background: var(--surface2);
-  border: 1px solid var(--border); border-radius: 18px;
-  display: flex; align-items: center; justify-content: center;
-  margin: 0 auto 16px; font-size: 26px;
-}
-h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.3px; }
-.sub { margin-top: 6px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+    /* ── MAIN ── */
+    .main { padding-top: 72px; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .wrap { width: 100%; max-width: 420px; padding: 8px 20px 32px; display: flex; flex-direction: column; align-items: center; gap: 20px; }
+    .header { text-align: center; }
+    .logo { width: 56px; height: 56px; background: var(--surface2); border: 1px solid var(--border); border-radius: 18px; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 26px; }
+    h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.3px; }
+    .sub { margin-top: 6px; color: var(--muted); font-size: 14px; line-height: 1.5; }
 
-/* ── CARD ── */
-.card {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 20px; width: 100%; max-width: 300px;
-}
-.card-label {
-  font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
-  color: var(--muted); text-transform: uppercase; margin-bottom: 10px;
-}
-.room-input-row { display: flex; gap: 8px; }
+    /* ── CARD ── */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; width: 100%; max-width: 300px; }
+    .card-label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; color: var(--muted); text-transform: uppercase; margin-bottom: 10px; }
+    .room-input-row { display: flex; gap: 8px; }
+    input[type="text"], input[type="password"] { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; color: var(--text); font-size: 15px; outline: none; font-family: inherit; transition: border-color 0.15s; width: 100%; }
+    input:focus { border-color: var(--accent); }
+    input::placeholder { color: var(--muted); opacity: 0.7; }
 
-input[type="text"], input[type="password"] {
-  flex: 1; background: var(--bg); border: 1px solid var(--border);
-  border-radius: 8px; padding: 10px 14px; color: var(--text);
-  font-size: 15px; outline: none; font-family: inherit;
-  transition: border-color 0.15s; width: 100%;
-}
-input:focus { border-color: var(--accent); }
-input::placeholder { color: var(--muted); opacity: 0.7; }
+    /* ── STATUS ── */
+    .status-bar { display: flex; align-items: center; gap: 10px; padding: 14px 18px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); width: 100%; min-height: 52px; max-width: 300px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; transition: background 0.3s; }
+    .dot.waiting { background: var(--yellow); animation: pulse 1.5s infinite; }
+    .dot.connected { background: var(--green); }
+    .dot.error { background: var(--red); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .status-text { font-size: 14px; color: var(--muted); flex: 1; }
 
-.btn-copy {
-  background: var(--surface2); border: 1px solid var(--border);
-  border-radius: 8px; color: var(--muted); font-size: 14px;
-  padding: 10px 14px; cursor: pointer;
-  transition: color 0.15s, border-color 0.15s; white-space: nowrap;
-}
-.btn-copy:hover { color: var(--text); border-color: var(--accent); }
-.btn-copy.copied { color: var(--green); border-color: var(--green); }
+    /* ── AVATARS ── */
+    .avatars { display: none; gap: 20px; align-items: center; justify-content: center; width: 100%; }
+    .avatars.visible { display: flex; }
+    .avatar { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+    .avatar-circle { width: 80px; height: 80px; border-radius: 50%; background: var(--surface2); display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 600; position: relative; cursor: pointer; border: 3px solid transparent; box-shadow: 0 0 0 0 rgba(61,186,109,0); transition: box-shadow 0.15s, border-color 0.15s; overflow: hidden; }
+    .avatar-circle img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; pointer-events: none; }
+    .avatar-circle.speaking { border-color: var(--green); box-shadow: 0 0 0 4px rgba(61,186,109,0.35), 0 0 16px rgba(61,186,109,0.2); animation: ring-pulse 1.2s ease-in-out infinite; }
+    @keyframes ring-pulse { 0%,100% { box-shadow: 0 0 0 4px rgba(61,186,109,0.35), 0 0 16px rgba(61,186,109,0.15); } 50% { box-shadow: 0 0 0 7px rgba(61,186,109,0.2), 0 0 22px rgba(61,186,109,0.1); } }
+    .avatar-circle.muted-self::after { content:'🔇'; position:absolute; bottom:0; right:0; font-size:14px; background:var(--surface); border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; line-height:22px; }
+    .avatar-upload-hint { position:absolute; inset:0; border-radius:50%; background:rgba(0,0,0,0.45); display:flex; align-items:center; justify-content:center; font-size:20px; opacity:0; transition:opacity 0.15s; }
+    .avatar-circle:hover .avatar-upload-hint { opacity:1; }
+    .avatar-name { font-size: 13px; color: var(--muted); font-weight: 500; }
+    .sep-arrow { color: var(--muted); font-size: 22px; }
 
-/* ── STATUS ── */
-.status-bar {
-  display: flex; align-items: center; gap: 10px;
-  padding: 14px 18px; background: var(--surface);
-  border: 1px solid var(--border); border-radius: var(--radius);
-  width: 100%; min-height: 52px; max-width: 300px;
-}
-.dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--muted); flex-shrink: 0; transition: background 0.3s;
-}
-.dot.waiting { background: var(--yellow); animation: pulse 1.5s infinite; }
-.dot.connected { background: var(--green); }
-.dot.error { background: var(--red); }
-@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-.status-text { font-size: 14px; color: var(--muted); flex: 1; }
+    /* ── BUTTONS ── */
+    .btn-join { width: 100%; padding: 14px; border-radius: var(--radius); border: none; font-size: 15px; font-weight: 600; cursor: pointer; transition: background 0.15s, transform 0.1s; font-family: inherit; max-width: 300px; }
+    .btn-join:active { transform: scale(0.98); }
+    .btn-join.primary { background: var(--accent); color: #fff; }
+    .btn-join.primary:hover { background: var(--accent-hover); }
+    .btn-join.secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn-join.secondary:hover { border-color: var(--accent); color: var(--accent-hover); }
+    .btn-join:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* ── AVATARS ── */
-.avatars { display: none; gap: 20px; align-items: center; justify-content: center; width: 100%; }
-.avatars.visible { display: flex; }
-.avatar { display: flex; flex-direction: column; align-items: center; gap: 10px; }
-.avatar-circle {
-  width: 80px; height: 80px; border-radius: 50%;
-  background: var(--surface2);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 22px; font-weight: 600; position: relative;
-  cursor: pointer;
-  border: 3px solid transparent;
-  box-shadow: 0 0 0 0 rgba(61,186,109,0);
-  transition: box-shadow 0.15s, border-color 0.15s;
-  overflow: hidden;
-}
-.avatar-circle img {
-  width: 100%; height: 100%; object-fit: cover; border-radius: 50%;
-  pointer-events: none;
-}
-.avatar-circle.speaking {
-  border-color: var(--green);
-  box-shadow: 0 0 0 4px rgba(61,186,109,0.35), 0 0 16px rgba(61,186,109,0.2);
-  animation: ring-pulse 1.2s ease-in-out infinite;
-}
-@keyframes ring-pulse {
-  0%,100% { box-shadow: 0 0 0 4px rgba(61,186,109,0.35), 0 0 16px rgba(61,186,109,0.15); }
-  50%      { box-shadow: 0 0 0 7px rgba(61,186,109,0.2),  0 0 22px rgba(61,186,109,0.1); }
-}
-.avatar-circle.muted-self::after {
-  content:'🔇'; position:absolute; bottom:0; right:0;
-  font-size:14px; background:var(--surface); border-radius:50%;
-  width:22px; height:22px; display:flex; align-items:center; justify-content:center; line-height:22px;
-}
-.avatar-upload-hint {
-  position:absolute; inset:0; border-radius:50%;
-  background:rgba(0,0,0,0.45); display:flex; align-items:center; justify-content:center;
-  font-size:20px; opacity:0; transition:opacity 0.15s;
-}
-.avatar-circle:hover .avatar-upload-hint { opacity:1; }
-.avatar-name { font-size: 13px; color: var(--muted); font-weight: 500; }
-.sep-arrow { color: var(--muted); font-size: 22px; }
+    .controls { display: none; gap: 12px; width: 100%; }
+    .controls.visible { display: flex; }
+    .ctrl-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 8px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; font-family: inherit; }
+    .ctrl-btn:hover { background: var(--surface2); border-color: var(--accent); }
+    .ctrl-btn.active { background: rgba(224,64,64,0.12); border-color: var(--red); color: var(--red); }
+    .ctrl-btn.active:hover { background: rgba(224,64,64,0.2); }
+    .ctrl-icon { font-size: 20px; line-height: 1; }
+    .ctrl-label { font-size: 11px; font-weight: 500; letter-spacing: 0.02em; color: inherit; text-align: center; line-height: 1.3; }
+    .btn-leave { flex: 0 0 auto; width: 56px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 8px; border-radius: var(--radius); border: none; background: var(--red); color: #fff; cursor: pointer; transition: background 0.15s; font-family: inherit; }
+    .btn-leave:hover { background: var(--red-hover); }
+    .btn-leave .ctrl-label { color: #fff; }
 
-/* ── BUTTONS ── */
-.btn-join {
-  width: 100%; padding: 14px; border-radius: var(--radius); border: none;
-  font-size: 15px; font-weight: 600; cursor: pointer;
-  transition: background 0.15s, transform 0.1s; font-family: inherit;
-  max-width: 300px;
-}
-.btn-join:active { transform: scale(0.98); }
-.btn-join.primary { background: var(--accent); color: #fff; }
-.btn-join.primary:hover { background: var(--accent-hover); }
-.btn-join.secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
-.btn-join.secondary:hover { border-color: var(--accent); color: var(--accent-hover); }
-.btn-join:disabled { opacity: 0.4; cursor: not-allowed; }
+    /* ── ERROR ── */
+    .error-box { display: none; padding: 12px 16px; background: rgba(224,64,64,0.08); border: 1px solid rgba(224,64,64,0.3); border-radius: 8px; color: var(--red); font-size: 13px; line-height: 1.5; width: 100%; text-align: center; }
+    .error-box.visible { display: block; }
 
-.controls { display: none; gap: 12px; width: 100%; }
-.controls.visible { display: flex; }
-.ctrl-btn {
-  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;
-  padding: 14px 8px; border-radius: var(--radius); border: 1px solid var(--border);
-  background: var(--surface); color: var(--text); cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s; font-family: inherit;
-}
-.ctrl-btn:hover { background: var(--surface2); border-color: var(--accent); }
-.ctrl-btn.active { background: rgba(224,64,64,0.12); border-color: var(--red); color: var(--red); }
-.ctrl-btn.active:hover { background: rgba(224,64,64,0.2); }
-.ctrl-icon { font-size: 20px; line-height: 1; }
-.ctrl-label { font-size: 11px; font-weight: 500; letter-spacing: 0.02em; color: inherit; text-align: center; line-height: 1.3; }
-.btn-leave {
-  flex: 0 0 auto; width: 56px; display: flex; flex-direction: column;
-  align-items: center; gap: 6px; padding: 14px 8px; border-radius: var(--radius);
-  border: none; background: var(--red); color: #fff; cursor: pointer;
-  transition: background 0.15s; font-family: inherit;
-}
-.btn-leave:hover { background: var(--red-hover); }
-.btn-leave .ctrl-label { color: #fff; }
+    /* ── OVERLAY (login / manager / avatar panel) ── */
+    .overlay { display: none; position: fixed; inset: 0; z-index: 200; background: var(--bg); align-items: center; justify-content: center; padding: 20px; }
+    .overlay.open { display: flex; }
+    #managerOverlay, #avatarPanelOverlay { background: rgba(0,0,0,0.75); }
+    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 32px 28px; width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 18px; }
+    #loginOverlay .modal { background: var(--surface); border: 1px solid var(--border); box-shadow: 0 0 0 1px rgba(124,106,247,0.08); }
+    .modal h2 { font-size: 18px; font-weight: 600; }
+    .modal-sub { font-size: 13px; color: var(--muted); margin-top: -8px; }
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: 12px; color: var(--muted); font-weight: 500; }
+    .btn-modal { padding: 11px 16px; border-radius: 10px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; transition: background 0.15s; text-align: center; }
+    .btn-modal.primary { background: var(--accent); color: #fff; width: 100%; }
+    .btn-modal.primary:hover { background: var(--accent-hover); }
+    .btn-modal.ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); width: 100%; }
+    .btn-modal.ghost:hover { border-color: var(--accent); color: var(--text); }
+    .btn-modal.danger { background: rgba(224,64,64,0.12); color: var(--red); border: 1px solid rgba(224,64,64,0.3); }
+    .btn-modal.danger:hover { background: rgba(224,64,64,0.22); }
+    .modal-err { font-size: 13px; color: var(--red); text-align: center; min-height: 18px; }
 
-/* ── ERROR ── */
-.error-box {
-  display: none; padding: 12px 16px;
-  background: rgba(224,64,64,0.08); border: 1px solid rgba(224,64,64,0.3);
-  border-radius: 8px; color: var(--red); font-size: 13px;
-  line-height: 1.5; width: 100%; text-align: center;
-}
-.error-box.visible { display: block; }
-
-/* ── CONFIG PANEL ── */
-.config-panel {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 20px; width: 100%;
-}
-.config-panel h3 { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--yellow); }
-.config-panel p { font-size: 13px; color: var(--muted); line-height: 1.6; margin-bottom: 10px; }
-.config-panel a { color: var(--accent); text-decoration: none; }
-.config-panel a:hover { text-decoration: underline; }
-.code-block {
-  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
-  padding: 12px; font-family: monospace; font-size: 12px; color: var(--text);
-  overflow-x: auto; margin-top: 8px; line-height: 1.7; white-space: pre;
-}
-.cfg-key { color: var(--accent-hover); }
-.cfg-val { color: #7ec8a4; }
-.cfg-comment { color: var(--muted); }
-
-/* ── OVERLAY (login / manager) ── */
-.overlay {
-  display: none; position: fixed; inset: 0; z-index: 200;
-  background: var(--bg); align-items: center; justify-content: center;
-  padding: 20px;
-}
-.overlay.open { display: flex; }
-#managerOverlay { background: rgba(0,0,0,0.75); }
-.modal {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 20px; padding: 32px 28px; width: 100%; max-width: 360px;
-  display: flex; flex-direction: column; gap: 18px;
-}
-#loginOverlay .modal {
-  background: var(--surface); border: 1px solid var(--border);
-  box-shadow: 0 0 0 1px rgba(124,106,247,0.08);
-}
-.modal h2 { font-size: 18px; font-weight: 600; }
-.modal-sub { font-size: 13px; color: var(--muted); margin-top: -8px; }
-.field { display: flex; flex-direction: column; gap: 6px; }
-.field label { font-size: 12px; color: var(--muted); font-weight: 500; }
-.btn-modal {
-  padding: 11px 16px; border-radius: 10px; border: none;
-  font-size: 14px; font-weight: 600; cursor: pointer;
-  font-family: inherit; transition: background 0.15s; text-align: center;
-}
-.btn-modal.primary { background: var(--accent); color: #fff; width: 100%; }
-.btn-modal.primary:hover { background: var(--accent-hover); }
-.btn-modal.ghost {
-  background: transparent; color: var(--muted); border: 1px solid var(--border); width: 100%;
-}
-.btn-modal.ghost:hover { border-color: var(--accent); color: var(--text); }
-.btn-modal.danger { background: rgba(224,64,64,0.12); color: var(--red); border: 1px solid rgba(224,64,64,0.3); }
-.btn-modal.danger:hover { background: rgba(224,64,64,0.22); }
-.modal-err { font-size: 13px; color: var(--red); text-align: center; min-height: 18px; }
-
-/* ── ACCOUNT LIST ── */
-.account-list { display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto; }
-.account-row {
-  display: flex; align-items: center; gap: 10px;
-  background: var(--surface2); border: 1px solid var(--border);
-  border-radius: 8px; padding: 10px 12px;
-}
-.account-row-info { flex: 1; }
-.account-row-name { font-size: 14px; font-weight: 500; }
-.account-row-role { font-size: 11px; color: var(--muted); margin-top: 2px; }
-.account-row-del {
-  background: none; border: none; color: var(--muted); cursor: pointer;
-  font-size: 16px; padding: 2px 6px; border-radius: 6px;
-  transition: color 0.15s, background 0.15s;
-}
-.account-row-del:hover { color: var(--red); background: rgba(224,64,64,0.1); }
-.divider { border: none; border-top: 1px solid var(--border); margin: 0; }
-.section-title { font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
-.empty-list { font-size: 13px; color: var(--muted); text-align: center; padding: 16px 0; }
-
-footer { color: var(--muted); font-size: 12px; text-align: center; padding-bottom: 8px; }
-</style>
+    /* ── ACCOUNT LIST ── */
+    .account-list { display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto; }
+    .account-row { display: flex; align-items: center; gap: 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+    .account-row-info { flex: 1; }
+    .account-row-name { font-size: 14px; font-weight: 500; }
+    .account-row-role { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .account-row-del { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 2px 6px; border-radius: 6px; transition: color 0.15s, background 0.15s; }
+    .account-row-del:hover { color: var(--red); background: rgba(224,64,64,0.1); }
+    .divider { border: none; border-top: 1px solid var(--border); margin: 0; }
+    .section-title { font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+    .empty-list { font-size: 13px; color: var(--muted); text-align: center; padding: 16px 0; }
+    footer { color: var(--muted); font-size: 12px; text-align: center; padding-bottom: 8px; }
+  </style>
 </head>
 <body>
 
 <!-- TOP BAR -->
 <div class="topbar">
   <div></div>
-  <div class="topbar-right" id="topbarRight">
-    <!-- заполняется JS -->
-  </div>
+  <div class="topbar-right" id="topbarRight"></div>
 </div>
 
 <!-- LOGIN OVERLAY -->
@@ -314,17 +154,15 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding-botto
   </div>
 </div>
 
-<!-- MANAGER OVERLAY -->
+<!-- MANAGER OVERLAY (admin) -->
 <div class="overlay" id="managerOverlay">
   <div class="modal">
     <div style="display:flex;align-items:center;justify-content:space-between">
       <h2>Менеджер аккаунтов</h2>
       <button class="btn-modal ghost" style="width:auto;padding:6px 12px" onclick="closeManager()">✕</button>
     </div>
-
     <div class="section-title">Аккаунты</div>
     <div class="account-list" id="accountList"></div>
-
     <hr class="divider">
     <div class="section-title">Создать аккаунт</div>
     <div class="field">
@@ -338,13 +176,23 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding-botto
     <div class="modal-err" id="managerErr"></div>
     <button class="btn-modal primary" onclick="createAccount()">Создать аккаунт</button>
     <hr class="divider">
-    <div class="section-title">Моя аватарка</div>
+    <button class="btn-modal ghost" onclick="doLogout()">Выйти из аккаунта</button>
+  </div>
+</div>
+
+<!-- AVATAR PANEL OVERLAY (regular users) -->
+<div class="overlay" id="avatarPanelOverlay">
+  <div class="modal">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <h2>Моя аватарка</h2>
+      <button class="btn-modal ghost" style="width:auto;padding:6px 12px" onclick="closeAvatarPanel()">✕</button>
+    </div>
     <div style="display:flex;align-items:center;gap:14px">
-      <div id="managerAvatarPreview" style="width:52px;height:52px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:600;flex-shrink:0"></div>
+      <div id="panelAvatarPreview" style="width:52px;height:52px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:600;flex-shrink:0"></div>
       <div style="flex:1;display:flex;flex-direction:column;gap:6px">
-        <label for="managerAvatarInput" class="btn-modal ghost" style="cursor:pointer;text-align:center;padding:8px">Загрузить фото</label>
-        <input type="file" id="managerAvatarInput" accept="image/*" style="display:none" onchange="uploadManagerAvatar(this)">
-        <button class="btn-modal ghost" style="padding:8px;font-size:12px;color:var(--red);border-color:rgba(224,64,64,0.3)" onclick="removeAvatar()">Удалить</button>
+        <label for="panelAvatarInput" class="btn-modal ghost" style="cursor:pointer;text-align:center;padding:8px">Загрузить фото</label>
+        <input type="file" id="panelAvatarInput" accept="image/*" style="display:none" onchange="uploadPanelAvatar(this)">
+        <button class="btn-modal ghost" style="padding:8px;font-size:12px;color:var(--red);border-color:rgba(224,64,64,0.3)" onclick="removePanelAvatar()">Удалить</button>
       </div>
     </div>
     <hr class="divider">
@@ -356,7 +204,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding-botto
 <div class="main">
 <div class="wrap">
   <div class="header" id="mainHeader">
-    <div class="logo" style="overflow:hidden;padding:0"><img src="data:image/png;base64,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" style="width:100%;height:100%;object-fit:cover;border-radius:18px" /></div>
+    <div class="logo" style="overflow:hidden;padding:0"><img src="https://i.imgur.com/JFo8fDq.png" style="width:100%;height:100%;object-fit:cover;border-radius:18px" /></div>
     <h1 style="font-size:28px;font-weight:700;letter-spacing:0.08em;background:linear-gradient(135deg,#fff 40%,#ff8c00 80%,#ff4500);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">VITALIK</h1>
     <p class="sub">наверна без задержек</p>
   </div>
@@ -369,7 +217,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding-botto
       Введи одинаковое название с человеком, чтобы попасть в одну комнату
     </div>
     <div class="room-input-row">
-      <input type="text" id="roomInput" placeholder="название комнаты" value="её звонок" />
+      <input type="text" id="roomInput" placeholder="название комнаты" value="ее звонок" />
     </div>
   </div>
 
@@ -417,15 +265,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding-botto
 
   <div class="config-panel" id="configPanel" style="display:none">
     <h3>⚙️ Нужна настройка Firebase</h3>
-    <p>Для работы нужен бесплатный Firebase Realtime Database.
-       Создай проект на <a href="https://console.firebase.google.com" target="_blank">console.firebase.google.com</a>,
-       включи Realtime Database в тестовом режиме и вставь конфиг в функцию <code>getFirebaseConfig()</code>:</p>
-    <div class="code-block"><span class="cfg-key">apiKey</span>: <span class="cfg-val">"AIza..."</span>,
-<span class="cfg-key">authDomain</span>: <span class="cfg-val">"your-project.firebaseapp.com"</span>,
-<span class="cfg-key">databaseURL</span>: <span class="cfg-val">"https://your-project-default-rtdb.firebaseio.com"</span>,
-<span class="cfg-key">projectId</span>: <span class="cfg-val">"your-project"</span></div>
+    <p>Для работы нужен бесплатный Firebase Realtime Database. Создай проект и вставь конфиг в функцию <code>getFirebaseConfig()</code>:</p>
+    <div class="code-block"><span class="cfg-key">apiKey</span>: <span class="cfg-val">"AIza..."</span>,<span class="cfg-key">authDomain</span>: <span class="cfg-val">"..."</span>,...</div>
   </div>
-
   <footer>WebRTC · бесплатно · p2p</footer>
 </div>
 </div>
@@ -445,52 +287,44 @@ function getFirebaseConfig() {
     appId: "1:658204798197:web:1ff00c67d17a4e52b7e9bc"
   };
 }
-// ─────────────────────────────────────────────────────────────────────────────
 
-// ADMIN credentials (SHA-256 хеши — пароль в открытом виде не хранится)
-// Логин: qamodik / Пароль: vitalik
+// ─── ADMIN ───────────────────────────────────────────────────────────────────
 const ADMIN_NAME = 'qamodik';
-const ADMIN_PASS_HASH = '35a63d51d45ef9d24bd13997c4be09c233f57c1d0b7f6a9caf25a986cbb42b2a'; // sha256('vitalik')
+const ADMIN_PASS_HASH = '35a63d51d45ef9d24bd13997c4be09c233f57c1d0b7f6a9caf25a986cbb42b2a';
 
-const STUN_SERVERS = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-  ]
-};
+const STUN_SERVERS = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] };
 
 // ─── STATE ───────────────────────────────────────────────────────────────────
 let db = null, pc = null, localStream = null, remoteStream = null;
 let roomRef = null, isInitiator = false;
 let micMuted = false, deafened = false, inCall = false, hasLeft = false;
-let myId = Math.random().toString(36).slice(2, 8);
-let currentUser = null; // { name, isAdmin }
+let currentUser = null;
 
 // ─── DOM ─────────────────────────────────────────────────────────────────────
-const $joinBtn      = document.getElementById('joinBtn');
-const $controls     = document.getElementById('controls');
-const $statusText   = document.getElementById('statusText');
-const $dot          = document.getElementById('dot');
-const $errorBox     = document.getElementById('errorBox');
-const $avatars      = document.getElementById('avatars');
-const $micBtn       = document.getElementById('micBtn');
-const $micIcon      = document.getElementById('micIcon');
-const $micLabel     = document.getElementById('micLabel');
-const $deafBtn      = document.getElementById('deafBtn');
-const $deafIcon     = document.getElementById('deafIcon');
-const $deafLabel    = document.getElementById('deafLabel');
-const $remoteAudio  = document.getElementById('remoteAudio');
-const $myAvatar     = document.getElementById('myAvatar');
-const $peerAvatar   = document.getElementById('peerAvatar');
-const $peerName     = document.getElementById('peerName');
-const $configPanel  = document.getElementById('configPanel');
-const $copyBtn      = document.getElementById('copyBtn');
-const $roomInput    = document.getElementById('roomInput');
-const $topbarRight  = document.getElementById('topbarRight');
+const $joinBtn = document.getElementById('joinBtn');
+const $controls = document.getElementById('controls');
+const $statusText = document.getElementById('statusText');
+const $dot = document.getElementById('dot');
+const $errorBox = document.getElementById('errorBox');
+const $avatars = document.getElementById('avatars');
+const $micBtn = document.getElementById('micBtn');
+const $micIcon = document.getElementById('micIcon');
+const $micLabel = document.getElementById('micLabel');
+const $deafBtn = document.getElementById('deafBtn');
+const $deafIcon = document.getElementById('deafIcon');
+const $deafLabel = document.getElementById('deafLabel');
+const $remoteAudio = document.getElementById('remoteAudio');
+const $myAvatar = document.getElementById('myAvatar');
+const $peerAvatar = document.getElementById('peerAvatar');
+const $peerName = document.getElementById('peerName');
+const $configPanel = document.getElementById('configPanel');
+const $roomInput = document.getElementById('roomInput');
+const $topbarRight = document.getElementById('topbarRight');
 const $loginOverlay = document.getElementById('loginOverlay');
 const $managerOverlay = document.getElementById('managerOverlay');
+const $avatarPanelOverlay = document.getElementById('avatarPanelOverlay');
 
-// ─── SHA-256 ─────────────────────────────────────────────────────────────────
+// ─── SHA‑256 ─────────────────────────────────────────────────────────────────
 async function sha256(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
@@ -506,13 +340,9 @@ window.addEventListener('load', async () => {
     await initFirebase();
   }
 
-  // Restore session
   const saved = sessionStorage.getItem('voiceUser');
   if (saved) {
-    try {
-      currentUser = JSON.parse(saved);
-      onLoggedIn();
-    } catch { showLogin(); }
+    try { currentUser = JSON.parse(saved); onLoggedIn(); } catch { showLogin(); }
   } else {
     showLogin();
   }
@@ -536,7 +366,6 @@ async function onLoggedIn() {
   $joinBtn.className = 'btn-join primary';
   setStatus('idle', `Привет, ${currentUser.name}!`);
 
-  // Load avatar
   const av = document.getElementById('myAvatar');
   let savedAvatar = localStorage.getItem('voiceAvatar');
   if (!savedAvatar && db && currentUser && !currentUser.isAdmin) {
@@ -570,7 +399,7 @@ function renderTopbar() {
         <span class="admin-badge" style="cursor:pointer;margin-left:8px" onclick="openManager()">admin</span>
       </div>`;
   } else {
-    $topbarRight.innerHTML = `<div class="user-chip" onclick="doLogout()">${av}<span>${currentUser.name}</span></div>`;
+    $topbarRight.innerHTML = `<div class="user-chip" onclick="openAvatarPanel()">${av}<span>${currentUser.name}</span></div>`;
   }
 }
 
@@ -578,14 +407,13 @@ function renderTopbar() {
 window.doLogin = async function() {
   const name = document.getElementById('loginName').value.trim().toLowerCase();
   const pass = document.getElementById('loginPass').value;
-  const err  = document.getElementById('loginErr');
+  const err = document.getElementById('loginErr');
   err.textContent = '';
 
   if (!name || !pass) { err.textContent = 'Заполни оба поля'; return; }
 
   const hash = await sha256(pass);
 
-  // Check admin
   if (name === ADMIN_NAME && hash === ADMIN_PASS_HASH) {
     currentUser = { name: ADMIN_NAME, isAdmin: true };
     sessionStorage.setItem('voiceUser', JSON.stringify(currentUser));
@@ -593,7 +421,6 @@ window.doLogin = async function() {
     return;
   }
 
-  // Check regular users in Firebase
   if (!db) { err.textContent = 'Firebase не настроен'; return; }
   const { ref, get } = window._fb;
   const snap = await get(ref(db, `accounts/${name}`));
@@ -616,12 +443,53 @@ window.doLogout = function() {
   if (inCall) leaveCall();
   setStatus('idle', 'Войди в аккаунт чтобы начать');
   closeManager();
+  closeAvatarPanel();
   showLogin();
 };
 
-// Enter key on login
 document.getElementById('loginName').addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('loginPass').focus(); });
 document.getElementById('loginPass').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
+
+// ─── AVATAR PANEL ────────────────────────────────────────────────────────────
+window.openAvatarPanel = function() {
+  if (!currentUser) return;
+  const prev = document.getElementById('panelAvatarPreview');
+  const saved = localStorage.getItem('voiceAvatar');
+  if (saved) prev.innerHTML = `<img src="${saved}" style="width:100%;height:100%;object-fit:cover">`;
+  else prev.textContent = currentUser.name.slice(0,2).toUpperCase();
+  $avatarPanelOverlay.classList.add('open');
+};
+
+window.closeAvatarPanel = function() { $avatarPanelOverlay.classList.remove('open'); };
+$avatarPanelOverlay.addEventListener('click', e => { if(e.target === $avatarPanelOverlay) closeAvatarPanel(); });
+
+window.uploadPanelAvatar = function(input) {
+  const file = input.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    const base64 = e.target.result;
+    localStorage.setItem('voiceAvatar', base64);
+    document.getElementById('panelAvatarPreview').innerHTML = `<img src="${base64}" style="width:100%;height:100%;object-fit:cover">`;
+    renderTopbar();
+    const av = document.getElementById('myAvatar');
+    av.innerHTML = `<img src="${base64}" /><div class="avatar-upload-hint">📷</div>`;
+    if (db && currentUser && !currentUser.isAdmin) {
+      try { await window._fb.set(window._fb.ref(db, `accounts/${currentUser.name}/avatar`), base64); } catch(ex) {}
+    }
+  };
+  reader.readAsDataURL(file);
+};
+
+window.removePanelAvatar = async function() {
+  localStorage.removeItem('voiceAvatar');
+  document.getElementById('panelAvatarPreview').textContent = currentUser.name.slice(0,2).toUpperCase();
+  if (db && currentUser && !currentUser.isAdmin) {
+    try { await window._fb.remove(window._fb.ref(db, `accounts/${currentUser.name}/avatar`)); } catch(ex) {}
+  }
+  renderTopbar();
+  const av = document.getElementById('myAvatar');
+  av.innerHTML = `<span id="myAvatarText">${currentUser.name.slice(0,2).toUpperCase()}</span><div class="avatar-upload-hint">📷</div>`;
+};
 
 // ─── MANAGER ──────────────────────────────────────────────────────────────────
 window.openManager = async function() {
@@ -630,78 +498,46 @@ window.openManager = async function() {
   document.getElementById('newAccName').value = '';
   document.getElementById('newAccPass').value = '';
   await renderAccountList();
-  // Fill avatar preview
   const prev = document.getElementById('managerAvatarPreview');
   const saved = localStorage.getItem('voiceAvatar');
   if (prev) {
-    if (saved) {
-      prev.innerHTML = `<img src="${saved}" style="width:100%;height:100%;object-fit:cover">`;
-    } else {
-      prev.textContent = currentUser.name.slice(0,2).toUpperCase();
-    }
+    if (saved) prev.innerHTML = `<img src="${saved}" style="width:100%;height:100%;object-fit:cover">`;
+    else prev.textContent = currentUser.name.slice(0,2).toUpperCase();
   }
   $managerOverlay.classList.add('open');
 };
 
-window.closeManager = function() {
-  $managerOverlay.classList.remove('open');
-};
-
-// Close on overlay click
+window.closeManager = function() { $managerOverlay.classList.remove('open'); };
 $managerOverlay.addEventListener('click', e => { if(e.target === $managerOverlay) closeManager(); });
 
 async function renderAccountList() {
   const list = document.getElementById('accountList');
   list.innerHTML = '<div class="empty-list">Загружаем...</div>';
-
-  // Always show admin
-  let rows = `
-    <div class="account-row">
-      <div class="account-row-info">
-        <div class="account-row-name">${ADMIN_NAME}</div>
-        <div class="account-row-role">Администратор · нельзя удалить</div>
-      </div>
-      <span class="admin-badge">admin</span>
-    </div>`;
-
+  let rows = `<div class="account-row"><div class="account-row-info"><div class="account-row-name">${ADMIN_NAME}</div><div class="account-row-role">Администратор · нельзя удалить</div></div><span class="admin-badge">admin</span></div>`;
   if (db) {
     const { ref, get } = window._fb;
     const snap = await get(ref(db, 'accounts'));
     if (snap.exists()) {
-      const accs = snap.val();
-      Object.keys(accs).sort().forEach(name => {
-        rows += `
-          <div class="account-row">
-            <div class="account-row-info">
-              <div class="account-row-name">${escHtml(name)}</div>
-              <div class="account-row-role">Пользователь</div>
-            </div>
-            <button class="account-row-del" title="Удалить" onclick="deleteAccount('${escHtml(name)}')">✕</button>
-          </div>`;
+      Object.keys(snap.val()).sort().forEach(name => {
+        rows += `<div class="account-row"><div class="account-row-info"><div class="account-row-name">${escHtml(name)}</div><div class="account-row-role">Пользователь</div></div><button class="account-row-del" onclick="deleteAccount('${escHtml(name)}')">✕</button></div>`;
       });
     }
   }
-
   list.innerHTML = rows;
 }
 
 window.createAccount = async function() {
   const name = document.getElementById('newAccName').value.trim().toLowerCase().replace(/[^a-z0-9_]/g,'');
   const pass = document.getElementById('newAccPass').value;
-  const err  = document.getElementById('managerErr');
+  const err = document.getElementById('managerErr');
   err.textContent = '';
-
   if (!name) { err.textContent = 'Введи имя (только a-z, 0-9, _)'; return; }
-  if (name === ADMIN_NAME) { err.textContent = 'Это имя зарезервировано'; return; }
+  if (name === ADMIN_NAME) { err.textContent = 'Имя зарезервировано'; return; }
   if (pass.length < 4) { err.textContent = 'Пароль минимум 4 символа'; return; }
   if (!db) { err.textContent = 'Firebase не настроен'; return; }
-
   const { ref, get, set } = window._fb;
-  const existing = await get(ref(db, `accounts/${name}`));
-  if (existing.exists()) { err.textContent = 'Такое имя уже занято'; return; }
-
-  const passHash = await sha256(pass);
-  await set(ref(db, `accounts/${name}`), { passHash });
+  if ((await get(ref(db, `accounts/${name}`))).exists()) { err.textContent = 'Имя занято'; return; }
+  await set(ref(db, `accounts/${name}`), { passHash: await sha256(pass) });
   document.getElementById('newAccName').value = '';
   document.getElementById('newAccPass').value = '';
   await renderAccountList();
@@ -709,9 +545,8 @@ window.createAccount = async function() {
 
 window.deleteAccount = async function(name) {
   if (!db || name === ADMIN_NAME) return;
-  if (!confirm(`Удалить аккаунт «${name}»?`)) return;
-  const { ref, remove } = window._fb;
-  await remove(ref(db, `accounts/${name}`));
+  if (!confirm(`Удалить «${name}»?`)) return;
+  await window._fb.remove(window._fb.ref(db, `accounts/${name}`));
   await renderAccountList();
 };
 
@@ -720,10 +555,8 @@ function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replac
 // ─── FIREBASE INIT ────────────────────────────────────────────────────────────
 async function initFirebase() {
   const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
-  const { getDatabase, ref, set, get, onValue, off, push, remove, onDisconnect }
-    = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js');
-  const app = initializeApp(getFirebaseConfig());
-  db = getDatabase(app);
+  const { getDatabase, ref, set, get, onValue, off, push, remove, onDisconnect } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js');
+  db = getDatabase(initializeApp(getFirebaseConfig()));
   window._fb = { ref, set, get, onValue, off, push, remove, onDisconnect };
 }
 
@@ -742,13 +575,7 @@ window.joinCall = async function() {
 
   try {
     localStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        channelCount: 1,
-        sampleRate: 48000
-      },
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, sampleRate: 48000 },
       video: false
     });
   } catch(e) {
@@ -756,25 +583,7 @@ window.joinCall = async function() {
     $joinBtn.disabled = false; return;
   }
 
-  // 🔇 RNNoise WASM через Jitsi AudioWorklet
-  window.__processedStream = localStream; // fallback
-  try {
-    window.__audioCtx = new AudioContext({ sampleRate: 48000 });
-    const workletUrl = 'https://cdn.jsdelivr.net/npm/@jitsi/rnnoise-wasm@0.0.7/dist/rnnoise-processor.js';
-    await window.__audioCtx.audioWorklet.addModule(workletUrl);
-    const source = window.__audioCtx.createMediaStreamSource(localStream);
-    const rnnode = new AudioWorkletNode(window.__audioCtx, 'rnnoise-processor');
-    const dest   = window.__audioCtx.createMediaStreamDestination();
-    source.connect(rnnode);
-    rnnode.connect(dest);
-    window.__processedStream = dest.stream;
-    window.__rnnode = rnnode;
-    console.log('✅ RNNoise WASM активен');
-  } catch(e) {
-    console.warn('⚠️ RNNoise не загрузился, используем браузерное шумоподавление:', e.message);
-    window.__rnnode = null;
-  }
-
+  window.__processedStream = localStream;
   hasLeft = false; inCall = false; isInitiator = false; pc = null;
   await startWebRTC(roomName);
 };
@@ -786,7 +595,7 @@ async function setPeerNameAndAvatar(name) {
   $peerName.textContent = name;
   const av = document.getElementById('peerAvatar');
   let avatarUrl = null;
-  if (db && name !== 'qamodik') {
+  if (db && name !== ADMIN_NAME) {
     try {
       const snap = await window._fb.get(window._fb.ref(db, `accounts/${name}/avatar`));
       if (snap.exists()) avatarUrl = snap.val();
@@ -810,24 +619,21 @@ async function startWebRTC(roomName) {
     const data = snap.val();
 
     if (!data || !data.offer) {
-      // Room is empty — become initiator (only once)
       if (inCall || _signalingBusy || isInitiator) return;
       _signalingBusy = true; isInitiator = true;
       await createOffer(roomName);
       _signalingBusy = false;
     } else if (data.offer && !data.answer && !isInitiator) {
-      // Room has offer, we answer (only once)
       if (inCall || _signalingBusy) return;
       _signalingBusy = true; isInitiator = false;
-      if (data.callerName) { document.getElementById('peerAvatarText') && (document.getElementById('peerAvatarText').textContent = data.callerName.slice(0,2).toUpperCase()); $peerName.textContent = data.callerName; }
+      if (data.callerName) await setPeerNameAndAvatar(data.callerName);
       await createAnswer(roomName, data.offer);
       _signalingBusy = false;
     } else if (data.answer && isInitiator && pc && pc.signalingState !== 'stable') {
-      if (data.calleeName) { document.getElementById('peerAvatarText') && (document.getElementById('peerAvatarText').textContent = data.calleeName.slice(0,2).toUpperCase()); $peerName.textContent = data.calleeName; }
+      if (data.calleeName) await setPeerNameAndAvatar(data.calleeName);
       await pc.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(()=>{});
     }
 
-    // Add ICE candidates (deduplicated)
     if (data && pc) {
       const theirKey = isInitiator ? 'iceCallee' : 'iceCaller';
       if (data[theirKey]) {
@@ -878,16 +684,11 @@ function buildPC(roomName, asInitiator) {
   connection.onicecandidate = (event) => {
     if (event.candidate) {
       const myKey = asInitiator ? 'iceCaller' : 'iceCallee';
-      push(ref(db, `rooms/${roomName}/${myKey}`), {
-        candidate: event.candidate.candidate,
-        sdpMid: event.candidate.sdpMid,
-        sdpMLineIndex: event.candidate.sdpMLineIndex
-      });
+      push(ref(db, `rooms/${roomName}/${myKey}`), { candidate: event.candidate.candidate, sdpMid: event.candidate.sdpMid, sdpMLineIndex: event.candidate.sdpMLineIndex });
     }
   };
   connection.onconnectionstatechange = () => {
-    const s = connection.connectionState;
-    if ((s==='disconnected'||s==='failed'||s==='closed') && inCall && !hasLeft) onPeerLeft();
+    if ((connection.connectionState==='disconnected'||connection.connectionState==='failed'||connection.connectionState==='closed') && inCall && !hasLeft) onPeerLeft();
   };
   return connection;
 }
@@ -913,7 +714,6 @@ function onPeerLeft() {
 
 window.leaveCall = async function() {
   hasLeft = true; inCall = false; isInitiator = false;
-  // Stop Firebase listener
   if (roomRef && window._fb) {
     try { window._fb.off(roomRef); } catch(e){}
     try { await window._fb.remove(roomRef); } catch(e){}
@@ -921,13 +721,13 @@ window.leaveCall = async function() {
   roomRef = null;
   if (pc) { pc.close(); pc = null; }
   if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream = null; }
-  if (window.__rnnode) { try { window.__rnnode.disconnect(); } catch(e){} window.__rnnode = null; }
   if (window.__audioCtx) { try { await window.__audioCtx.close(); } catch(e){} window.__audioCtx = null; }
   window.__processedStream = null;
   $remoteAudio.srcObject = null;
   $controls.classList.remove('visible');
   $avatars.classList.remove('visible');
-  $peerAvatar.textContent = '👤'; $peerName.textContent = 'Собеседник';
+  $peerAvatar.innerHTML = '<span id="peerAvatarText">👤</span>';
+  $peerName.textContent = 'Собеседник';
   setStatus('idle', 'Ты вышел из звонка');
   setCallUI(false);
   stopSpeakingDetection();
@@ -947,51 +747,15 @@ window.toggleMic = function() {
 };
 function updateMicUI() {
   if (micMuted) {
-    $micLabel.textContent = 'Микрофон выкл';
-    $micBtn.classList.add('active');
-    $myAvatar.classList.add('muted-self');
+    $micLabel.textContent = 'Микрофон выкл'; $micBtn.classList.add('active'); $myAvatar.classList.add('muted-self');
   } else {
-    $micLabel.textContent = 'Микрофон';
-    $micBtn.classList.remove('active');
-    $myAvatar.classList.remove('muted-self');
+    $micLabel.textContent = 'Микрофон'; $micBtn.classList.remove('active'); $myAvatar.classList.remove('muted-self');
   }
 }
 
-window.toggleDeaf = function() {
-  deafened = !deafened;
-  $remoteAudio.muted = deafened;
-  updateDeafUI();
-};
+window.toggleDeaf = function() { deafened = !deafened; $remoteAudio.muted = deafened; updateDeafUI(); };
 
-// ─── AVATAR UPLOAD ────────────────────────────────────────────────────────────
-window.uploadManagerAvatar = async function(input) {
-  const file = input.files[0]; if (!file) return;
-  const reader = new FileReader();
-  reader.onload = async (e) => {
-    const base64 = e.target.result;
-    localStorage.setItem('voiceAvatar', base64);
-    const prev = document.getElementById('managerAvatarPreview');
-    if (prev) prev.innerHTML = `<img src="${base64}" style="width:100%;height:100%;object-fit:cover">`;
-    renderTopbar();
-    if (db && currentUser && !currentUser.isAdmin) {
-      try { await window._fb.set(window._fb.ref(db, `accounts/${currentUser.name}/avatar`), base64); } catch(e) {}
-    }
-  };
-  reader.readAsDataURL(file);
-};
-
-window.removeAvatar = async function() {
-  localStorage.removeItem('voiceAvatar');
-  const prev = document.getElementById('managerAvatarPreview');
-  if (prev) prev.textContent = currentUser.name.slice(0,2).toUpperCase();
-  if (db && currentUser && !currentUser.isAdmin) {
-    try { await window._fb.remove(window._fb.ref(db, `accounts/${currentUser.name}/avatar`)); } catch(e) {}
-  }
-  renderTopbar();
-  const av = document.getElementById('myAvatar');
-  av.innerHTML = `<span id="myAvatarText">${currentUser.name.slice(0,2).toUpperCase()}</span><div class="avatar-upload-hint">📷</div>`;
-};
-
+// ─── AVATAR UPLOAD (call screen) ─────────────────────────────────────────────
 window.loadAvatar = async function(input) {
   const file = input.files[0]; if (!file) return;
   const reader = new FileReader();
@@ -1001,13 +765,12 @@ window.loadAvatar = async function(input) {
     localStorage.setItem('voiceAvatar', base64);
     renderTopbar();
     if (db && currentUser && !currentUser.isAdmin) {
-      try { await window._fb.set(window._fb.ref(db, `accounts/${currentUser.name}/avatar`), base64); } catch(e) {}
+      try { await window._fb.set(window._fb.ref(db, `accounts/${currentUser.name}/avatar`), base64); } catch(ex) {}
     }
   };
   reader.readAsDataURL(file);
 };
 
-// Restore saved avatar
 (function() {
   try {
     const saved = localStorage.getItem('voiceAvatar');
@@ -1026,13 +789,9 @@ let _speakIntervalLocal = null, _speakIntervalRemote = null;
 function startSpeakingDetection() {
   try {
     _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-    // Local mic
     if (localStream) {
       const src = _audioCtx.createMediaStreamSource(localStream);
-      _analyserLocal = _audioCtx.createAnalyser();
-      _analyserLocal.fftSize = 512;
-      src.connect(_analyserLocal);
+      _analyserLocal = _audioCtx.createAnalyser(); _analyserLocal.fftSize = 512; src.connect(_analyserLocal);
       const data = new Uint8Array(_analyserLocal.frequencyBinCount);
       _speakIntervalLocal = setInterval(() => {
         if (!_analyserLocal) return;
@@ -1041,13 +800,9 @@ function startSpeakingDetection() {
         document.getElementById('myAvatar').classList.toggle('speaking', vol > 8 && !micMuted);
       }, 80);
     }
-
-    // Remote audio
     if ($remoteAudio.srcObject) {
       const src2 = _audioCtx.createMediaStreamSource($remoteAudio.srcObject);
-      _analyserRemote = _audioCtx.createAnalyser();
-      _analyserRemote.fftSize = 512;
-      src2.connect(_analyserRemote);
+      _analyserRemote = _audioCtx.createAnalyser(); _analyserRemote.fftSize = 512; src2.connect(_analyserRemote);
       const data2 = new Uint8Array(_analyserRemote.frequencyBinCount);
       _speakIntervalRemote = setInterval(() => {
         if (!_analyserRemote) return;
@@ -1071,55 +826,38 @@ function stopSpeakingDetection() {
 // ─── HIDE/SHOW UI ─────────────────────────────────────────────────────────────
 function setCallUI(active) {
   const header = document.getElementById('mainHeader');
-  const room   = document.getElementById('roomCard');
+  const room = document.getElementById('roomCard');
   if (header) header.style.display = active ? 'none' : '';
-  if (room)   room.style.display   = active ? 'none' : '';
+  if (room) room.style.display = active ? 'none' : '';
 }
 function updateDeafUI() {
   if (deafened) {
-    $deafIcon.textContent = '🔇'; $deafLabel.textContent = 'Звук выкл';
-    $deafBtn.classList.add('active');
+    $deafIcon.textContent = '🔇'; $deafLabel.textContent = 'Звук выкл'; $deafBtn.classList.add('active');
   } else {
-    $deafIcon.textContent = '🔊'; $deafLabel.textContent = 'Звук';
-    $deafBtn.classList.remove('active');
+    $deafIcon.textContent = '🔊'; $deafLabel.textContent = 'Звук'; $deafBtn.classList.remove('active');
   }
 }
 
 function setStatus(state, text) {
   $statusText.textContent = text;
   $dot.className = 'dot';
-  if (state==='waiting')   $dot.classList.add('waiting');
+  if (state==='waiting') $dot.classList.add('waiting');
   if (state==='connected') $dot.classList.add('connected');
-  if (state==='error')     $dot.classList.add('error');
+  if (state==='error') $dot.classList.add('error');
 }
 function showError(msg) {
-  $errorBox.textContent = msg;
-  $errorBox.classList.add('visible');
-  setStatus('error','Ошибка');
-  $joinBtn.disabled = false;
+  $errorBox.textContent = msg; $errorBox.classList.add('visible');
+  setStatus('error','Ошибка'); $joinBtn.disabled = false;
 }
-function clearError() {
-  $errorBox.textContent = '';
-  $errorBox.classList.remove('visible');
-}
+function clearError() { $errorBox.textContent = ''; $errorBox.classList.remove('visible'); }
 
 window.toggleRoomHint = function() {
   const hint = document.getElementById('roomHint');
-  const btn  = document.getElementById('hintBtn');
+  const btn = document.getElementById('hintBtn');
   const open = hint.style.display === 'none';
   hint.style.display = open ? 'block' : 'none';
   btn.style.borderColor = open ? 'var(--accent)' : 'var(--muted)';
   btn.style.color = open ? 'var(--accent)' : 'var(--muted)';
-};
-
-window.copyRoom = function() {
-  const room = $roomInput.value.trim() || 'main';
-  const url = `${location.href.split('?')[0]}?room=${room}`;
-  navigator.clipboard.writeText(url).then(() => {
-    $copyBtn.textContent = '✓ Скопировано';
-    $copyBtn.classList.add('copied');
-    setTimeout(() => { $copyBtn.textContent = 'Копировать'; $copyBtn.classList.remove('copied'); }, 2000);
-  });
 };
 </script>
 </body>
