@@ -428,7 +428,8 @@ function getFirebaseConfig() {
   };
 }
 
-import { RNNoise } from 'https://cdn.jsdelivr.net/npm/@timephy/rnnoise-wasm@0.2.0/dist/index.js';
+// 🔇 Современный RNNoise (AudioWorklet) – работает без SharedArrayBuffer
+import { NoiseSuppressor } from 'https://esm.sh/@shiguredo/noise-suppression@2022.1.0';
 
 // ─── ADMIN ───────────────────────────────────────────────────────────────────
 const ADMIN_NAME = 'qamodik';
@@ -710,20 +711,18 @@ window.joinCall = async function() {
     $joinBtn.disabled = false; return;
   }
 
-  // 🔇 Инициализация timephy RNNoise
+  // 🔇 Инициализация Shiguredo RNNoise
   try {
     window.__audioCtx = new AudioContext({ sampleRate: 48000 });
-    const rnnoise = new RNNoise(window.__audioCtx);
-    await rnnoise.ready;
-
+    const suppressor = new NoiseSuppressor();
+    await suppressor.ready;
     const source = window.__audioCtx.createMediaStreamSource(localStream);
     const dest = window.__audioCtx.createMediaStreamDestination();
-    source.connect(rnnoise.node);
-    rnnoise.node.connect(dest);
-
+    source.connect(suppressor.node);
+    suppressor.node.connect(dest);
     window.__processedStream = dest.stream;
-    window.__rnnoise = rnnoise;
-    console.log('✅ RNNoise active (timephy)');
+    window.__suppressor = suppressor;
+    console.log('✅ RNNoise active (Shiguredo)');
   } catch(e) {
     console.warn('⚠️ RNNoise не загрузился, используем обычный звук', e);
     window.__processedStream = localStream;
@@ -871,9 +870,9 @@ window.leaveCall = async function() {
   if (pc) { pc.close(); pc = null; }
   if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream = null; }
 
-  if (window.__rnnoise) {
-    try { window.__rnnoise.destroy(); } catch(e){}
-    window.__rnnoise = null;
+  if (window.__suppressor) {
+    try { window.__suppressor.close(); } catch(e){}
+    window.__suppressor = null;
   }
   if (window.__audioCtx) {
     await window.__audioCtx.close();
