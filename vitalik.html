@@ -184,7 +184,7 @@
 <div class="overlay" id="avatarPanelOverlay">
   <div class="modal">
     <div style="display:flex;align-items:center;justify-content:space-between">
-      <h2>Моя аватарка</h2>
+      <h2>Настройки</h2>
       <button class="btn-modal ghost" style="width:auto;padding:6px 12px" onclick="closeAvatarPanel()">✕</button>
     </div>
     <div style="display:flex;align-items:center;gap:14px">
@@ -217,7 +217,7 @@
       Введи одинаковое название с человеком, чтобы попасть в одну комнату (Пробелы заменяются на "_")
     </div>
     <div class="room-input-row">
-      <input type="text" id="roomInput" placeholder="название комнаты" value="ее звонок" />
+      <input type="text" id="roomInput" placeholder="название комнаты" value="комната" />
     </div>
   </div>
 
@@ -567,7 +567,7 @@ window.joinCall = async function() {
   if (!db) { showError('Firebase инициализируется, подожди секунду.'); return; }
 
   clearError();
-  const roomName = $roomInput.value.trim().replace(/\s+/g,'_').replace(/[^\w\u0400-\u04FF-]/g,'') || 'ее_звонок';
+  const roomName = $roomInput.value.trim().replace(/\s+/g,'_').replace(/[^\w\u0400-\u04FF-]/g,'') || 'комната';
   $roomInput.value = roomName;
 
   setStatus('waiting', 'Подключаемся...');
@@ -579,7 +579,7 @@ window.joinCall = async function() {
       video: false
     });
   } catch(e) {
-    showError('Нет доступа к микрофону: ' + e.message);
+    showError('так доступа к микрофону нет бебебе 🤪');
     $joinBtn.disabled = false; return;
   }
 
