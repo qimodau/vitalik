@@ -77,7 +77,7 @@ h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.3px; }
 /* ── CARD ── */
 .card {
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 20px; width: 100%;
+  border-radius: var(--radius); padding: 20px; width: 100%; max-width: 300px;
 }
 .card-label {
   font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
@@ -108,7 +108,7 @@ input::placeholder { color: var(--muted); opacity: 0.7; }
   display: flex; align-items: center; gap: 10px;
   padding: 14px 18px; background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius);
-  width: 100%; min-height: 52px;
+  width: 100%; min-height: 52px; max-width: 300px;
 }
 .dot {
   width: 8px; height: 8px; border-radius: 50%;
@@ -337,6 +337,16 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding-botto
     <div class="modal-err" id="managerErr"></div>
     <button class="btn-modal primary" onclick="createAccount()">Создать аккаунт</button>
     <hr class="divider">
+    <div class="section-title">Моя аватарка</div>
+    <div style="display:flex;align-items:center;gap:14px">
+      <div id="managerAvatarPreview" style="width:52px;height:52px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:600;flex-shrink:0"></div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+        <label for="managerAvatarInput" class="btn-modal ghost" style="cursor:pointer;text-align:center;padding:8px">Загрузить фото</label>
+        <input type="file" id="managerAvatarInput" accept="image/*" style="display:none" onchange="uploadManagerAvatar(this)">
+        <button class="btn-modal ghost" style="padding:8px;font-size:12px;color:var(--red);border-color:rgba(224,64,64,0.3)" onclick="removeAvatar()">Удалить</button>
+      </div>
+    </div>
+    <hr class="divider">
     <button class="btn-modal ghost" onclick="doLogout()">Выйти из аккаунта</button>
   </div>
 </div>
@@ -359,7 +369,6 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding-botto
     </div>
     <div class="room-input-row">
       <input type="text" id="roomInput" placeholder="название комнаты" value="её звонок" />
-      <button class="btn-copy" id="copyBtn" onclick="copyRoom()">Копировать</button>
     </div>
   </div>
 
@@ -519,24 +528,49 @@ function showLogin() {
   setTimeout(() => document.getElementById('loginName').focus(), 100);
 }
 
-function onLoggedIn() {
+async function onLoggedIn() {
   $loginOverlay.classList.remove('open');
-  renderTopbar();
   $joinBtn.style.display = '';
   $joinBtn.textContent = 'Войти в звонок';
   $joinBtn.className = 'btn-join primary';
-  setStatus('idle', `Привет, ${currentUser.name}! Жми «Войти в звонок»`);
-  (document.getElementById('myAvatarText') || document.getElementById('myAvatar')).textContent = currentUser.name.slice(0,2).toUpperCase();
+  setStatus('idle', `Привет, ${currentUser.name}!`);
+
+  // Load avatar
+  const av = document.getElementById('myAvatar');
+  let savedAvatar = localStorage.getItem('voiceAvatar');
+  if (!savedAvatar && db && currentUser && !currentUser.isAdmin) {
+    try {
+      const snap = await window._fb.get(window._fb.ref(db, `accounts/${currentUser.name}/avatar`));
+      if (snap.exists()) { savedAvatar = snap.val(); localStorage.setItem('voiceAvatar', savedAvatar); }
+    } catch(e) {}
+  }
+  if (savedAvatar) {
+    av.innerHTML = `<img src="${savedAvatar}" /><div class="avatar-upload-hint">📷</div>`;
+  } else {
+    av.innerHTML = `<span id="myAvatarText">${currentUser.name.slice(0,2).toUpperCase()}</span>`;
+  }
+  av.onclick = () => document.getElementById('avatarInput').click();
+  renderTopbar();
+}
+
+function getTopbarAvatarHtml() {
+  const saved = localStorage.getItem('voiceAvatar');
+  if (saved) return `<div style="width:24px;height:24px;border-radius:50%;overflow:hidden;flex-shrink:0"><img src="${saved}" style="width:100%;height:100%;object-fit:cover"/></div>`;
+  return `<div class="user-avatar-sm">${currentUser.name.slice(0,2).toUpperCase()}</div>`;
 }
 
 function renderTopbar() {
   if (!currentUser) { $topbarRight.innerHTML = ''; return; }
-  $topbarRight.innerHTML = `
-    <div class="user-chip" onclick="${currentUser.isAdmin ? 'openManager()' : 'doLogout()'}">
-      <div class="user-avatar-sm">${currentUser.name.slice(0,2).toUpperCase()}</div>
-      <span>${currentUser.name}</span>
-      ${currentUser.isAdmin ? '<span class="admin-badge">admin</span>' : ''}
-    </div>`;
+  const av = getTopbarAvatarHtml();
+  if (currentUser.isAdmin) {
+    $topbarRight.innerHTML = `
+      <div class="user-chip">
+        <div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="doLogout()">${av}<span>${currentUser.name}</span></div>
+        <span class="admin-badge" style="cursor:pointer;margin-left:8px" onclick="openManager()">admin</span>
+      </div>`;
+  } else {
+    $topbarRight.innerHTML = `<div class="user-chip" onclick="doLogout()">${av}<span>${currentUser.name}</span></div>`;
+  }
 }
 
 // ─── LOGIN ────────────────────────────────────────────────────────────────────
@@ -595,6 +629,16 @@ window.openManager = async function() {
   document.getElementById('newAccName').value = '';
   document.getElementById('newAccPass').value = '';
   await renderAccountList();
+  // Fill avatar preview
+  const prev = document.getElementById('managerAvatarPreview');
+  const saved = localStorage.getItem('voiceAvatar');
+  if (prev) {
+    if (saved) {
+      prev.innerHTML = `<img src="${saved}" style="width:100%;height:100%;object-fit:cover">`;
+    } else {
+      prev.textContent = currentUser.name.slice(0,2).toUpperCase();
+    }
+  }
   $managerOverlay.classList.add('open');
 };
 
@@ -736,6 +780,23 @@ window.joinCall = async function() {
 
 let _signalingBusy = false;
 let _addedCandidates = new Set();
+
+async function setPeerNameAndAvatar(name) {
+  $peerName.textContent = name;
+  const av = document.getElementById('peerAvatar');
+  let avatarUrl = null;
+  if (db && name !== 'qamodik') {
+    try {
+      const snap = await window._fb.get(window._fb.ref(db, `accounts/${name}/avatar`));
+      if (snap.exists()) avatarUrl = snap.val();
+    } catch(e) {}
+  }
+  if (avatarUrl) {
+    av.innerHTML = `<img src="${avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%" />`;
+  } else {
+    av.innerHTML = `<span id="peerAvatarText">${name.slice(0,2).toUpperCase()}</span>`;
+  }
+}
 
 async function startWebRTC(roomName) {
   const { ref, set, onValue, push, remove, onDisconnect } = window._fb;
@@ -902,15 +963,45 @@ window.toggleDeaf = function() {
 };
 
 // ─── AVATAR UPLOAD ────────────────────────────────────────────────────────────
-window.loadAvatar = function(input) {
-  const file = input.files[0];
-  if (!file) return;
+window.uploadManagerAvatar = async function(input) {
+  const file = input.files[0]; if (!file) return;
   const reader = new FileReader();
-  reader.onload = (e) => {
-    const img = `<img src="${e.target.result}" />`;
-    document.getElementById('myAvatar').innerHTML = img + '<div class="avatar-upload-hint">📷</div>';
-    document.getElementById('myAvatar').onclick = () => document.getElementById('avatarInput').click();
-    localStorage.setItem('voiceAvatar', e.target.result);
+  reader.onload = async (e) => {
+    const base64 = e.target.result;
+    localStorage.setItem('voiceAvatar', base64);
+    const prev = document.getElementById('managerAvatarPreview');
+    if (prev) prev.innerHTML = `<img src="${base64}" style="width:100%;height:100%;object-fit:cover">`;
+    renderTopbar();
+    if (db && currentUser && !currentUser.isAdmin) {
+      try { await window._fb.set(window._fb.ref(db, `accounts/${currentUser.name}/avatar`), base64); } catch(e) {}
+    }
+  };
+  reader.readAsDataURL(file);
+};
+
+window.removeAvatar = async function() {
+  localStorage.removeItem('voiceAvatar');
+  const prev = document.getElementById('managerAvatarPreview');
+  if (prev) prev.textContent = currentUser.name.slice(0,2).toUpperCase();
+  if (db && currentUser && !currentUser.isAdmin) {
+    try { await window._fb.remove(window._fb.ref(db, `accounts/${currentUser.name}/avatar`)); } catch(e) {}
+  }
+  renderTopbar();
+  const av = document.getElementById('myAvatar');
+  av.innerHTML = `<span id="myAvatarText">${currentUser.name.slice(0,2).toUpperCase()}</span><div class="avatar-upload-hint">📷</div>`;
+};
+
+window.loadAvatar = async function(input) {
+  const file = input.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    const base64 = e.target.result;
+    document.getElementById('myAvatar').innerHTML = `<img src="${base64}" /><div class="avatar-upload-hint">📷</div>`;
+    localStorage.setItem('voiceAvatar', base64);
+    renderTopbar();
+    if (db && currentUser && !currentUser.isAdmin) {
+      try { await window._fb.set(window._fb.ref(db, `accounts/${currentUser.name}/avatar`), base64); } catch(e) {}
+    }
   };
   reader.readAsDataURL(file);
 };
