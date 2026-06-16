@@ -569,7 +569,7 @@
     await window.__audioCtx.audioWorklet.addModule('./rnnoise-processor.js');
 
     // Загружаем WASM‑модуль через rnnoise.js
-    const createRNNWasmModule = (await import('./rnnoise.js')).default;
+    const createRNNWasmModule = (await import('./rnnoise.mjs')).default;
     const wasm = await createRNNWasmModule();
 
     const source = window.__audioCtx.createMediaStreamSource(localStream);
