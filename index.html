@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>виталик</title>
   <style>
-    /* ── все ваши стили без изменений (сохранены полностью) ── */
+    /* ── все ваши стили без изменений ── */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root { --bg: #0e0e10; --surface: #18181b; --surface2: #222228; --border: #2e2e35; --text: #efeff1; --muted: #848494; --accent: #7c6af7; --accent-hover: #9b8fff; --red: #e04040; --red-hover: #f05050; --green: #3dba6d; --yellow: #e6a817; --radius: 12px; }
     body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; user-select: none; }
@@ -204,7 +204,7 @@
       <div class="status-bar" id="statusBar">
         <div class="dot" id="dot"></div>
         <span class="status-text" id="statusText">Войди в аккаунт чтобы начать</span>
-        <span class="ns-status" id="nsStatus"><span class="dot-ns"></span> Denoise</span>
+        <span class="ns-status" id="nsStatus"><span class="dot-ns"></span> RNNoise</span>
       </div>
 
       <div class="avatars" id="avatars">
@@ -249,7 +249,7 @@
         <p>Для работы нужен бесплатный Firebase Realtime Database. Создай проект и вставь конфиг в функцию <code>getFirebaseConfig()</code>:</p>
         <div class="code-block"><span class="cfg-key">apiKey</span>: <span class="cfg-val">"AIza..."</span>,<span class="cfg-key">authDomain</span>: <span class="cfg-val">"..."</span>,...</div>
       </div>
-      <footer>WebRTC · Denoise (LiveKit) · p2p</footer>
+      <footer>WebRTC · RNNoise (WASM) · p2p</footer>
     </div>
   </div>
 
@@ -288,8 +288,8 @@
       hasLeft = false;
     let currentUser = null;
 
-    // ─── Denoise (LiveKit) ──────────────────────────────────────────────────
-    let _denoiseProcessor = null;
+    // ─── RNNoise (timephy) ──────────────────────────────────────────────────
+    let _rnnoiseProcessor = null;
     let _audioContext = null;
 
     // ─── DOM ──────────────────────────────────────────────────────────────────
@@ -346,7 +346,7 @@
       return cfg.databaseURL && cfg.databaseURL.length > 5;
     }
 
-    function updateDenoiseStatus(active) {
+    function updateRNNoiseStatus(active) {
       if (active) {
         $nsStatus.classList.add('active');
         $nsStatus.querySelector('.dot-ns').style.background = 'var(--green)';
@@ -564,36 +564,35 @@
       window._fb = { ref, set, get, onValue, off, push, remove, onDisconnect };
     }
 
-    // ─── ШУМОПОДАВЛЕНИЕ ЧЕРЕЗ @cc-livekit/denoise-plugin ──────────────────
+    // ─── ШУМОПОДАВЛЕНИЕ ЧЕРЕЗ @timephy/rnnoise-wasm ──────────────────────
     async function initNoiseSuppression() {
       try {
-        // Динамический импорт из CDN
-        const { DenoiseProcessor } = await import(
-          'https://cdn.jsdelivr.net/npm/@cc-livekit/denoise-plugin@latest/dist/index.js'
+        // Динамический импорт с CDN
+        const { RNNoiseProcessor } = await import(
+          'https://cdn.jsdelivr.net/npm/@timephy/rnnoise-wasm@latest/dist/index.js'
         );
 
         // Создаём AudioContext, если ещё не создан
         if (!_audioContext) {
           _audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          // Важно: если контекст в suspended, резюмируем
           if (_audioContext.state === 'suspended') {
             await _audioContext.resume();
           }
         }
 
         // Создаём процессор
-        _denoiseProcessor = new DenoiseProcessor(_audioContext);
+        _rnnoiseProcessor = new RNNoiseProcessor(_audioContext);
         // Загружаем WASM-модель
-        await _denoiseProcessor.load();
+        await _rnnoiseProcessor.load();
 
         // Обрабатываем поток
-        const processedStream = await _denoiseProcessor.processStream(localStream);
-        updateDenoiseStatus(true);
-        console.log('✅ DenoisePlugin (LiveKit) активен');
+        const processedStream = await _rnnoiseProcessor.processStream(localStream);
+        updateRNNoiseStatus(true);
+        console.log('✅ RNNoiseProcessor (timephy) активен');
         return processedStream;
       } catch (e) {
-        console.warn('⚠️ DenoisePlugin не запустился, используем оригинальный поток:', e);
-        updateDenoiseStatus(false);
+        console.warn('⚠️ RNNoiseProcessor не запустился, используем оригинальный поток:', e);
+        updateRNNoiseStatus(false);
         return localStream;
       }
     }
@@ -615,7 +614,7 @@
         localStream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
-            noiseSuppression: false, // отключаем встроенное, чтобы дать шанс нашему
+            noiseSuppression: false, // отключаем встроенное
             autoGainControl: true,
             channelCount: 1
           },
@@ -773,14 +772,14 @@
       inCall = false;
       isInitiator = false;
 
-      // Очистка Denoise
-      if (_denoiseProcessor) {
+      // Очистка RNNoise
+      if (_rnnoiseProcessor) {
         try {
-          await _denoiseProcessor.dispose();
-          console.log('🧹 DenoiseProcessor очищен');
-        } catch (e) { console.warn('Ошибка при очистке Denoise:', e); }
-        _denoiseProcessor = null;
-        updateDenoiseStatus(false);
+          await _rnnoiseProcessor.dispose();
+          console.log('🧹 RNNoiseProcessor очищен');
+        } catch (e) { console.warn('Ошибка при очистке RNNoise:', e); }
+        _rnnoiseProcessor = null;
+        updateRNNoiseStatus(false);
       }
       if (_audioContext) {
         try { await _audioContext.close(); } catch (e) {}
