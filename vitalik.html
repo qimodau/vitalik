@@ -439,14 +439,11 @@ function getFirebaseConfig() {
   };
 }
 
-import { Vif } from 'https://esm.sh/@4players/voice-filter';
-// ─────────────────────────────────────────────────────────────────────────────
+import { RNNoise } from 'https://cdn.jsdelivr.net/npm/@timephy/rnnoise-wasm@0.2.0/dist/index.js';
 
-
-// ADMIN credentials (SHA-256 хеши — пароль в открытом виде не хранится)
-// Логин: qamodik / Пароль: vitalik
+// ─── ADMIN ───────────────────────────────────────────────────────────────────
 const ADMIN_NAME = 'qamodik';
-const ADMIN_PASS_HASH = '35a63d51d45ef9d24bd13997c4be09c233f57c1d0b7f6a9caf25a986cbb42b2a'; // sha256('vitalik')
+const ADMIN_PASS_HASH = '35a63d51d45ef9d24bd13997c4be09c233f57c1d0b7f6a9caf25a986cbb42b2a';
 
 const STUN_SERVERS = {
   iceServers: [
@@ -460,7 +457,7 @@ let db = null, pc = null, localStream = null, remoteStream = null;
 let roomRef = null, isInitiator = false;
 let micMuted = false, deafened = false, inCall = false, hasLeft = false;
 let myId = Math.random().toString(36).slice(2, 8);
-let currentUser = null; // { name, isAdmin }
+let currentUser = null;
 
 // ─── DOM ─────────────────────────────────────────────────────────────────────
 const $joinBtn      = document.getElementById('joinBtn');
@@ -485,7 +482,7 @@ const $topbarRight  = document.getElementById('topbarRight');
 const $loginOverlay = document.getElementById('loginOverlay');
 const $managerOverlay = document.getElementById('managerOverlay');
 
-// ─── SHA-256 ─────────────────────────────────────────────────────────────────
+// ─── SHA‑256 ─────────────────────────────────────────────────────────────────
 async function sha256(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
@@ -501,13 +498,9 @@ window.addEventListener('load', async () => {
     await initFirebase();
   }
 
-  // Restore session
   const saved = sessionStorage.getItem('voiceUser');
   if (saved) {
-    try {
-      currentUser = JSON.parse(saved);
-      onLoggedIn();
-    } catch { showLogin(); }
+    try { currentUser = JSON.parse(saved); onLoggedIn(); } catch { showLogin(); }
   } else {
     showLogin();
   }
@@ -555,7 +548,6 @@ window.doLogin = async function() {
 
   const hash = await sha256(pass);
 
-  // Check admin
   if (name === ADMIN_NAME && hash === ADMIN_PASS_HASH) {
     currentUser = { name: ADMIN_NAME, isAdmin: true };
     sessionStorage.setItem('voiceUser', JSON.stringify(currentUser));
@@ -563,7 +555,6 @@ window.doLogin = async function() {
     return;
   }
 
-  // Check regular users in Firebase
   if (!db) { err.textContent = 'Firebase не настроен'; return; }
   const { ref, get } = window._fb;
   const snap = await get(ref(db, `accounts/${name}`));
@@ -589,7 +580,6 @@ window.doLogout = function() {
   showLogin();
 };
 
-// Enter key on login
 document.getElementById('loginName').addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('loginPass').focus(); });
 document.getElementById('loginPass').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
 
@@ -603,20 +593,13 @@ window.openManager = async function() {
   $managerOverlay.classList.add('open');
 };
 
-window.closeManager = function() {
-  $managerOverlay.classList.remove('open');
-};
-
-// Close on overlay click
+window.closeManager = function() { $managerOverlay.classList.remove('open'); };
 $managerOverlay.addEventListener('click', e => { if(e.target === $managerOverlay) closeManager(); });
 
 async function renderAccountList() {
   const list = document.getElementById('accountList');
   list.innerHTML = '<div class="empty-list">Загружаем...</div>';
-
-  // Always show admin
-  let rows = `
-    <div class="account-row">
+  let rows = `<div class="account-row">
       <div class="account-row-info">
         <div class="account-row-name">${ADMIN_NAME}</div>
         <div class="account-row-role">Администратор · нельзя удалить</div>
@@ -630,18 +613,16 @@ async function renderAccountList() {
     if (snap.exists()) {
       const accs = snap.val();
       Object.keys(accs).sort().forEach(name => {
-        rows += `
-          <div class="account-row">
+        rows += `<div class="account-row">
             <div class="account-row-info">
               <div class="account-row-name">${escHtml(name)}</div>
               <div class="account-row-role">Пользователь</div>
             </div>
-            <button class="account-row-del" title="Удалить" onclick="deleteAccount('${escHtml(name)}')">✕</button>
+            <button class="account-row-del" onclick="deleteAccount('${escHtml(name)}')">✕</button>
           </div>`;
       });
     }
   }
-
   list.innerHTML = rows;
 }
 
@@ -650,18 +631,13 @@ window.createAccount = async function() {
   const pass = document.getElementById('newAccPass').value;
   const err  = document.getElementById('managerErr');
   err.textContent = '';
-
-  if (!name) { err.textContent = 'Введи имя (только a-z, 0-9, _)'; return; }
-  if (name === ADMIN_NAME) { err.textContent = 'Это имя зарезервировано'; return; }
+  if (!name) { err.textContent = 'Введи имя'; return; }
+  if (name === ADMIN_NAME) { err.textContent = 'Имя зарезервировано'; return; }
   if (pass.length < 4) { err.textContent = 'Пароль минимум 4 символа'; return; }
   if (!db) { err.textContent = 'Firebase не настроен'; return; }
-
   const { ref, get, set } = window._fb;
-  const existing = await get(ref(db, `accounts/${name}`));
-  if (existing.exists()) { err.textContent = 'Такое имя уже занято'; return; }
-
-  const passHash = await sha256(pass);
-  await set(ref(db, `accounts/${name}`), { passHash });
+  if ((await get(ref(db, `accounts/${name}`))).exists()) { err.textContent = 'Имя занято'; return; }
+  await set(ref(db, `accounts/${name}`), { passHash: await sha256(pass) });
   document.getElementById('newAccName').value = '';
   document.getElementById('newAccPass').value = '';
   await renderAccountList();
@@ -669,9 +645,8 @@ window.createAccount = async function() {
 
 window.deleteAccount = async function(name) {
   if (!db || name === ADMIN_NAME) return;
-  if (!confirm(`Удалить аккаунт «${name}»?`)) return;
-  const { ref, remove } = window._fb;
-  await remove(ref(db, `accounts/${name}`));
+  if (!confirm(`Удалить «${name}»?`)) return;
+  await window._fb.remove(window._fb.ref(db, `accounts/${name}`));
   await renderAccountList();
 };
 
@@ -682,8 +657,7 @@ async function initFirebase() {
   const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
   const { getDatabase, ref, set, get, onValue, off, push, remove, onDisconnect }
     = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js');
-  const app = initializeApp(getFirebaseConfig());
-  db = getDatabase(app);
+  db = getDatabase(initializeApp(getFirebaseConfig()));
   window._fb = { ref, set, get, onValue, off, push, remove, onDisconnect };
 }
 
@@ -704,59 +678,35 @@ window.joinCall = async function() {
     localStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
-        noiseSuppression: false,   // 🔇 отключаем встроенный шумодав
+        noiseSuppression: false,
         autoGainControl: true,
         channelCount: 1,
         sampleRate: 48000
       },
       video: false
     });
-
-      // 🔇 Инициализация @4players/voice-filter
-  try {
-    window.__audioCtx = new AudioContext();
-    const filter = await Vif.create(false); // false = mono
-    const bufferSize = 1024;
-
-    const processor = window.__audioCtx.createScriptProcessor(bufferSize, 1, 1);
-    const source = window.__audioCtx.createMediaStreamSource(localStream);
-    const dest = window.__audioCtx.createMediaStreamDestination();
-
-    let ringBuffer = new Float32Array(0);
-
-    processor.onaudioprocess = (event) => {
-      const inputData = event.inputBuffer.getChannelData(0);
-      const outputData = event.outputBuffer.getChannelData(0);
-
-      const newBuf = new Float32Array(ringBuffer.length + inputData.length);
-      newBuf.set(ringBuffer);
-      newBuf.set(inputData, ringBuffer.length);
-      ringBuffer = newBuf;
-
-      while (ringBuffer.length >= 960) {
-        const frame = ringBuffer.slice(0, 960);
-        const processed = new Float32Array(960);
-        filter.processFrame(frame, processed);
-        const toWrite = Math.min(processed.length, outputData.length);
-        outputData.set(processed.subarray(0, toWrite));
-        ringBuffer = ringBuffer.slice(960);
-      }
-    };
-
-    source.connect(processor);
-    processor.connect(dest);
-
-    window.__processedStream = dest.stream;
-    window.__filter = filter;
-    console.log('✅ voice-filter active');
   } catch(e) {
-    console.warn('⚠️ voice-filter не загрузился', e);
-    window.__processedStream = localStream;
+    showError('Нет доступа к микрофону');
+    $joinBtn.disabled = false; return;
   }
 
+  // 🔇 Инициализация timephy RNNoise
+  try {
+    window.__audioCtx = new AudioContext({ sampleRate: 48000 });
+    const rnnoise = new RNNoise(window.__audioCtx);
+    await rnnoise.ready;
+
+    const source = window.__audioCtx.createMediaStreamSource(localStream);
+    const dest = window.__audioCtx.createMediaStreamDestination();
+    source.connect(rnnoise.node);
+    rnnoise.node.connect(dest);
+
+    window.__processedStream = dest.stream;
+    window.__rnnoise = rnnoise;
+    console.log('✅ RNNoise active (timephy)');
   } catch(e) {
-    showError('Нет доступа к микрофону: ' + e.message);
-    $joinBtn.disabled = false; return;
+    console.warn('⚠️ RNNoise не загрузился, используем обычный звук', e);
+    window.__processedStream = localStream;
   }
 
   hasLeft = false; inCall = false; isInitiator = false; pc = null;
@@ -777,24 +727,21 @@ async function startWebRTC(roomName) {
     const data = snap.val();
 
     if (!data || !data.offer) {
-      // Room is empty — become initiator (only once)
       if (inCall || _signalingBusy || isInitiator) return;
       _signalingBusy = true; isInitiator = true;
       await createOffer(roomName);
       _signalingBusy = false;
     } else if (data.offer && !data.answer && !isInitiator) {
-      // Room has offer, we answer (only once)
       if (inCall || _signalingBusy) return;
       _signalingBusy = true; isInitiator = false;
-      if (data.callerName) { document.getElementById('peerAvatarText') && (document.getElementById('peerAvatarText').textContent = data.callerName.slice(0,2).toUpperCase()); $peerName.textContent = data.callerName; }
+      if (data.callerName) { document.getElementById('peerAvatarText').textContent = data.callerName.slice(0,2).toUpperCase(); $peerName.textContent = data.callerName; }
       await createAnswer(roomName, data.offer);
       _signalingBusy = false;
     } else if (data.answer && isInitiator && pc && pc.signalingState !== 'stable') {
-      if (data.calleeName) { document.getElementById('peerAvatarText') && (document.getElementById('peerAvatarText').textContent = data.calleeName.slice(0,2).toUpperCase()); $peerName.textContent = data.calleeName; }
+      if (data.calleeName) { document.getElementById('peerAvatarText').textContent = data.calleeName.slice(0,2).toUpperCase(); $peerName.textContent = data.calleeName; }
       await pc.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(()=>{});
     }
 
-    // Add ICE candidates (deduplicated)
     if (data && pc) {
       const theirKey = isInitiator ? 'iceCallee' : 'iceCaller';
       if (data[theirKey]) {
@@ -833,7 +780,6 @@ async function createAnswer(roomName, offerData) {
 function buildPC(roomName, asInitiator) {
   const { ref, push } = window._fb;
   const connection = new RTCPeerConnection(STUN_SERVERS);
-  // 🔇 Используем обработанный поток
   const processed = window.__processedStream || localStream;
   processed.getAudioTracks().forEach(track => connection.addTrack(track, processed));
   remoteStream = new MediaStream();
@@ -854,8 +800,7 @@ function buildPC(roomName, asInitiator) {
     }
   };
   connection.onconnectionstatechange = () => {
-    const s = connection.connectionState;
-    if ((s==='disconnected'||s==='failed'||s==='closed') && inCall && !hasLeft) onPeerLeft();
+    if ((connection.connectionState==='disconnected'||connection.connectionState==='failed'||connection.connectionState==='closed') && inCall && !hasLeft) onPeerLeft();
   };
   return connection;
 }
@@ -881,7 +826,6 @@ function onPeerLeft() {
 
 window.leaveCall = async function() {
   hasLeft = true; inCall = false; isInitiator = false;
-  // Stop Firebase listener
   if (roomRef && window._fb) {
     try { window._fb.off(roomRef); } catch(e){}
     try { await window._fb.remove(roomRef); } catch(e){}
@@ -890,10 +834,9 @@ window.leaveCall = async function() {
   if (pc) { pc.close(); pc = null; }
   if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream = null; }
 
-  // 🔇 Очистка voice-filter (после остановки треков!)
-  if (window.__filter) {
-    try { window.__filter.destroy(); } catch(e){}
-    window.__filter = null;
+  if (window.__rnnoise) {
+    try { window.__rnnoise.destroy(); } catch(e){}
+    window.__rnnoise = null;
   }
   if (window.__audioCtx) {
     await window.__audioCtx.close();
@@ -902,7 +845,6 @@ window.leaveCall = async function() {
   window.__processedStream = null;
 
   $remoteAudio.srcObject = null;
-  $controls.classList.remove('visible');
   $controls.classList.remove('visible');
   $avatars.classList.remove('visible');
   $peerAvatar.textContent = '👤'; $peerName.textContent = 'Собеседник';
@@ -947,15 +889,13 @@ window.loadAvatar = function(input) {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = (e) => {
-    const img = `<img src="${e.target.result}" />`;
-    document.getElementById('myAvatar').innerHTML = img + '<div class="avatar-upload-hint">📷</div>';
+    document.getElementById('myAvatar').innerHTML = `<img src="${e.target.result}" /><div class="avatar-upload-hint">📷</div>`;
     document.getElementById('myAvatar').onclick = () => document.getElementById('avatarInput').click();
     localStorage.setItem('voiceAvatar', e.target.result);
   };
   reader.readAsDataURL(file);
 };
 
-// Restore saved avatar
 (function() {
   try {
     const saved = localStorage.getItem('voiceAvatar');
@@ -973,10 +913,8 @@ let _speakIntervalLocal = null, _speakIntervalRemote = null;
 
 function startSpeakingDetection() {
   try {
-    // Используем общий аудиоконтекст шумодава, если есть
     _audioCtx = window.__audioCtx || new (window.AudioContext || window.webkitAudioContext)();
 
-    // Local mic
     if (localStream) {
       const src = _audioCtx.createMediaStreamSource(localStream);
       _analyserLocal = _audioCtx.createAnalyser();
@@ -991,7 +929,6 @@ function startSpeakingDetection() {
       }, 80);
     }
 
-    // Remote audio
     if ($remoteAudio.srcObject) {
       const src2 = _audioCtx.createMediaStreamSource($remoteAudio.srcObject);
       _analyserRemote = _audioCtx.createAnalyser();
@@ -1061,7 +998,6 @@ window.toggleRoomHint = function() {
   btn.style.borderColor = open ? 'var(--accent)' : 'var(--muted)';
   btn.style.color = open ? 'var(--accent)' : 'var(--muted)';
 };
-
 </script>
 </body>
 </html>
