@@ -10,10 +10,10 @@ class RnnoiseProcessor extends AudioWorkletProcessor {
 
     this.port.onmessage = (event) => {
       if (event.data.type === 'wasm') {
-        const wasm = event.data.wasm;
-        this._rnnoise_create = wasm._rnnoise_create;
-        this._rnnoise_process_frame = wasm._rnnoise_process_frame;
-        this._rnnoise_destroy = wasm._rnnoise_destroy;
+        const funcs = event.data.functions;
+        this._rnnoise_create = funcs._rnnoise_create;
+        this._rnnoise_process_frame = funcs._rnnoise_process_frame;
+        this._rnnoise_destroy = funcs._rnnoise_destroy;
         this._context = this._rnnoise_create();
         this._ready = true;
         console.log('✅ RNNoise ready inside AudioWorklet');
