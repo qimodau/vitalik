@@ -435,8 +435,6 @@ function getFirebaseConfig() {
     appId: "1:658204798197:web:1ff00c67d17a4e52b7e9bc"
   };
 }
-
-import NoiseSuppressor from 'https://esm.sh/@workadventure/noise-suppression';
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ADMIN credentials (SHA-256 хеши — пароль в открытом виде не хранится)
@@ -701,7 +699,7 @@ window.joinCall = async function() {
     localStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
-        noiseSuppression: false,
+        noiseSuppression: true,
         autoGainControl: true,
         channelCount: 1,
         sampleRate: 48000
@@ -711,21 +709,6 @@ window.joinCall = async function() {
   } catch(e) {
     showError('Нет доступа к микрофону: ' + e.message);
     $joinBtn.disabled = false; return;
-  }
-
-  // 🔇 Инициализация DTLN
-  try {
-    window.__audioCtx = new AudioContext();
-    window.__suppressor = new NoiseSuppressor(window.__audioCtx);
-    await window.__suppressor.ready;   // ждём готовности AudioWorklet
-    const source = window.__audioCtx.createMediaStreamSource(localStream);
-    const dest = window.__audioCtx.createMediaStreamDestination();
-    source.connect(window.__suppressor.node);
-    window.__suppressor.node.connect(dest);
-    window.__processedStream = dest.stream;
-  } catch(e) {
-    console.warn('⚠️ DTLN не загрузился, используем обычный звук', e);
-    window.__processedStream = localStream;
   }
 
   hasLeft = false; inCall = false; isInitiator = false; pc = null;
@@ -802,8 +785,7 @@ async function createAnswer(roomName, offerData) {
 function buildPC(roomName, asInitiator) {
   const { ref, push } = window._fb;
   const connection = new RTCPeerConnection(STUN_SERVERS);
-  const processed = window.__processedStream || localStream;
-processed.getAudioTracks().forEach(track => connection.addTrack(track, processed));
+  localStream.getTracks().forEach(track => connection.addTrack(track, localStream));
   remoteStream = new MediaStream();
   $remoteAudio.srcObject = remoteStream;
 
@@ -857,18 +839,6 @@ window.leaveCall = async function() {
   roomRef = null;
   if (pc) { pc.close(); pc = null; }
   if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream = null; }
-  
-  // 🔇 Очистка DTLN
-  if (window.__suppressor) {
-    try { await window.__suppressor.destroy(); } catch(e){}
-    window.__suppressor = null;
-  }
-  if (window.__audioCtx) {
-    await window.__audioCtx.close();
-    window.__audioCtx = null;
-  }
-  window.__processedStream = null;
-
   $remoteAudio.srcObject = null;
   $controls.classList.remove('visible');
   $avatars.classList.remove('visible');
@@ -940,7 +910,7 @@ let _speakIntervalLocal = null, _speakIntervalRemote = null;
 
 function startSpeakingDetection() {
   try {
-    _audioCtx = window.__audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
     // Local mic
     if (localStream) {
@@ -977,8 +947,7 @@ function startSpeakingDetection() {
 function stopSpeakingDetection() {
   clearInterval(_speakIntervalLocal); clearInterval(_speakIntervalRemote);
   _speakIntervalLocal = null; _speakIntervalRemote = null;
-  if (_audioCtx && _audioCtx !== window.__audioCtx) { try { _audioCtx.close(); } catch(e){} }
-_audioCtx = null;
+  if (_audioCtx) { try { _audioCtx.close(); } catch(e){} _audioCtx = null; }
   _analyserLocal = null; _analyserRemote = null;
   document.getElementById('myAvatar').classList.remove('speaking');
   document.getElementById('peerAvatar').classList.remove('speaking');
