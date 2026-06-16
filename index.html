@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>виталик</title>
   <style>
-    /* ── все стили без изменений (я их сократил для экономии места, но они полностью сохранены) ── */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root { --bg: #0e0e10; --surface: #18181b; --surface2: #222228; --border: #2e2e35; --text: #efeff1; --muted: #848494; --accent: #7c6af7; --accent-hover: #9b8fff; --red: #e04040; --red-hover: #f05050; --green: #3dba6d; --yellow: #e6a817; --radius: 12px; }
     body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; user-select: none; }
@@ -249,7 +248,7 @@
         <p>Для работы нужен бесплатный Firebase Realtime Database. Создай проект и вставь конфиг в функцию <code>getFirebaseConfig()</code>:</p>
         <div class="code-block"><span class="cfg-key">apiKey</span>: <span class="cfg-val">"AIza..."</span>,<span class="cfg-key">authDomain</span>: <span class="cfg-val">"..."</span>,...</div>
       </div>
-      <footer>WebRTC · DTLN (Datadog) · p2p</footer>
+      <footer>WebRTC · DTLN (WorkAdventure) · p2p</footer>
     </div>
   </div>
 
@@ -281,9 +280,8 @@
     let micMuted = false, deafened = false, inCall = false, hasLeft = false;
     let currentUser = null;
 
-    // ─── DTLN (Datadog) ──────────────────────────────────────────────────────
-    let DTLN = null; // класс, который загрузим
-    let _dtlnInstance = null;
+    // ─── Шумоподавление (WorkAdventure DTLN) ────────────────────────────────
+    let _noiseSuppressor = null;
     let _audioContext = null;
 
     // ─── DOM ──────────────────────────────────────────────────────────────────
@@ -327,9 +325,6 @@
         await initFirebase();
       }
 
-      // Загружаем DTLN с GitHub (сырой билд)
-      await loadDTLN();
-
       const saved = sessionStorage.getItem('voiceUser');
       if (saved) {
         try { currentUser = JSON.parse(saved); onLoggedIn(); } catch { showLogin(); }
@@ -343,75 +338,13 @@
       return cfg.databaseURL && cfg.databaseURL.length > 5;
     }
 
-    function updateDTLNStatus(active) {
+    function updateStatus(active) {
       if (active) {
         $nsStatus.classList.add('active');
         $nsStatus.querySelector('.dot-ns').style.background = 'var(--green)';
-        $nsStatus.textContent = 'DTLN';
       } else {
         $nsStatus.classList.remove('active');
         $nsStatus.querySelector('.dot-ns').style.background = 'var(--muted)';
-        $nsStatus.textContent = 'DTLN';
-      }
-    }
-
-    // ─── ЗАГРУЗКА DTLN С GITHUB ────────────────────────────────────────────
-    async function loadDTLN() {
-      try {
-        // Браузерный билд из репозитория Datadog (коммит от 2025-03-20)
-        const module = await import('https://raw.githubusercontent.com/DataDog/dtln-rs/main/crates/dtl-web/pkg/dtl_web.js');
-        // В этом билде экспортируется класс DTLN
-        if (module.DTLN) {
-          DTLN = module.DTLN;
-          console.log('✅ DTLN загружен с GitHub');
-          updateDTLNStatus(false);
-        } else if (module.default && module.default.DTLN) {
-          DTLN = module.default.DTLN;
-          console.log('✅ DTLN загружен (default) с GitHub');
-        } else {
-          throw new Error('Не найден класс DTLN в загруженном модуле');
-        }
-      } catch (e) {
-        console.warn('⚠️ DTLN не загрузился с GitHub:', e);
-        DTLN = null;
-        updateDTLNStatus(false);
-      }
-    }
-
-    // ─── ШУМОПОДАВЛЕНИЕ ЧЕРЕЗ DTLN ──────────────────────────────────────────
-    async function initNoiseSuppression() {
-      if (!DTLN) {
-        console.warn('DTLN не доступен, используем оригинальный поток');
-        return localStream;
-      }
-
-      try {
-        // Создаём AudioContext, если ещё нет
-        if (!_audioContext) {
-          _audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          if (_audioContext.state === 'suspended') {
-            await _audioContext.resume();
-          }
-        }
-
-        // Создаём экземпляр DTLN
-        _dtlnInstance = new DTLN(_audioContext);
-        // Загружаем WASM-модель (если нужно)
-        if (typeof _dtlnInstance.ready !== 'undefined') {
-          await _dtlnInstance.ready;
-        }
-
-        // Обрабатываем поток
-        const processedStream = await _dtlnInstance.processStream(localStream);
-        updateDTLNStatus(true);
-        console.log('✅ DTLN активен');
-        return processedStream;
-      } catch (e) {
-        console.warn('⚠️ DTLN не запустился, используем оригинальный поток:', e);
-        updateDTLNStatus(false);
-        // Если DTLN упал, пытаемся очистить
-        _dtlnInstance = null;
-        return localStream;
       }
     }
 
@@ -623,6 +556,37 @@
       window._fb = { ref, set, get, onValue, off, push, remove, onDisconnect };
     }
 
+    // ─── ШУМОПОДАВЛЕНИЕ (WorkAdventure DTLN) ──────────────────────────────
+    async function initNoiseSuppression() {
+      try {
+        // Динамический импорт пакета
+        const { createNoiseSuppressor } = await import(
+          'https://cdn.jsdelivr.net/npm/@workadventure/noise-suppression@latest/dist/index.js'
+        );
+
+        // Создаём AudioContext
+        if (!_audioContext) {
+          _audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          if (_audioContext.state === 'suspended') {
+            await _audioContext.resume();
+          }
+        }
+
+        // Создаём suppressor
+        _noiseSuppressor = await createNoiseSuppressor(_audioContext);
+
+        // Обрабатываем поток
+        const processed = await _noiseSuppressor.processStream(localStream);
+        updateStatus(true);
+        console.log('✅ DTLN (WorkAdventure) активен');
+        return processed;
+      } catch (e) {
+        console.warn('⚠️ DTLN не запустился, используем оригинальный поток:', e);
+        updateStatus(false);
+        return localStream;
+      }
+    }
+
     // ─── CALL ─────────────────────────────────────────────────────────────────
     window.joinCall = async function() {
       if (!currentUser) return;
@@ -798,11 +762,11 @@
       inCall = false;
       isInitiator = false;
 
-      // Очистка DTLN
-      if (_dtlnInstance && typeof _dtlnInstance.dispose === 'function') {
-        try { await _dtlnInstance.dispose(); } catch(e) {}
+      // Очистка
+      if (_noiseSuppressor && typeof _noiseSuppressor.dispose === 'function') {
+        try { await _noiseSuppressor.dispose(); } catch(e) {}
       }
-      _dtlnInstance = null;
+      _noiseSuppressor = null;
       if (_audioContext) {
         try { await _audioContext.close(); } catch (e) {}
         _audioContext = null;
