@@ -802,7 +802,8 @@ async function createAnswer(roomName, offerData) {
 function buildPC(roomName, asInitiator) {
   const { ref, push } = window._fb;
   const connection = new RTCPeerConnection(STUN_SERVERS);
-  localStream.getTracks().forEach(track => connection.addTrack(track, localStream));
+  const processed = window.__processedStream || localStream;
+processed.getAudioTracks().forEach(track => connection.addTrack(track, processed));
   remoteStream = new MediaStream();
   $remoteAudio.srcObject = remoteStream;
 
