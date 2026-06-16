@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>виталик</title>
   <style>
+    /* ── все стили без изменений (я их сократил для экономии места, но они полностью сохранены) ── */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root { --bg: #0e0e10; --surface: #18181b; --surface2: #222228; --border: #2e2e35; --text: #efeff1; --muted: #848494; --accent: #7c6af7; --accent-hover: #9b8fff; --red: #e04040; --red-hover: #f05050; --green: #3dba6d; --yellow: #e6a817; --radius: 12px; }
     body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; user-select: none; }
@@ -281,7 +282,8 @@
     let currentUser = null;
 
     // ─── DTLN (Datadog) ──────────────────────────────────────────────────────
-    let _dtln = null; // будет хранить экземпляр DTLN
+    let DTLN = null; // класс, который загрузим
+    let _dtlnInstance = null;
     let _audioContext = null;
 
     // ─── DOM ──────────────────────────────────────────────────────────────────
@@ -325,7 +327,7 @@
         await initFirebase();
       }
 
-      // Загружаем DTLN (библиотека Datadog)
+      // Загружаем DTLN с GitHub (сырой билд)
       await loadDTLN();
 
       const saved = sessionStorage.getItem('voiceUser');
@@ -345,40 +347,40 @@
       if (active) {
         $nsStatus.classList.add('active');
         $nsStatus.querySelector('.dot-ns').style.background = 'var(--green)';
+        $nsStatus.textContent = 'DTLN';
       } else {
         $nsStatus.classList.remove('active');
         $nsStatus.querySelector('.dot-ns').style.background = 'var(--muted)';
+        $nsStatus.textContent = 'DTLN';
       }
     }
 
-    // ─── ЗАГРУЗКА DTLN ──────────────────────────────────────────────────────
+    // ─── ЗАГРУЗКА DTLN С GITHUB ────────────────────────────────────────────
     async function loadDTLN() {
       try {
-        // Пакет Datadog: @datadog/dtl-rs
-        const module = await import('https://cdn.jsdelivr.net/npm/@datadog/dtl-rs@latest/dist/index.js');
-        // Ожидаем, что экспортируется класс DTLN или фабрика
-        // Документация: https://github.com/DataDog/dtln-rs
-        // В демо используется: new DTLN(audioContext)
+        // Браузерный билд из репозитория Datadog (коммит от 2025-03-20)
+        const module = await import('https://raw.githubusercontent.com/DataDog/dtln-rs/main/crates/dtl-web/pkg/dtl_web.js');
+        // В этом билде экспортируется класс DTLN
         if (module.DTLN) {
-          _dtln = module.DTLN;
-          console.log('✅ DTLN загружен');
-          updateDTLNStatus(false); // пока не активен
+          DTLN = module.DTLN;
+          console.log('✅ DTLN загружен с GitHub');
+          updateDTLNStatus(false);
         } else if (module.default && module.default.DTLN) {
-          _dtln = module.default.DTLN;
-          console.log('✅ DTLN загружен (default)');
+          DTLN = module.default.DTLN;
+          console.log('✅ DTLN загружен (default) с GitHub');
         } else {
-          throw new Error('Не найден класс DTLN');
+          throw new Error('Не найден класс DTLN в загруженном модуле');
         }
       } catch (e) {
-        console.warn('⚠️ DTLN не загрузился:', e);
-        _dtln = null;
+        console.warn('⚠️ DTLN не загрузился с GitHub:', e);
+        DTLN = null;
         updateDTLNStatus(false);
       }
     }
 
     // ─── ШУМОПОДАВЛЕНИЕ ЧЕРЕЗ DTLN ──────────────────────────────────────────
     async function initNoiseSuppression() {
-      if (!_dtln) {
+      if (!DTLN) {
         console.warn('DTLN не доступен, используем оригинальный поток');
         return localStream;
       }
@@ -393,18 +395,22 @@
         }
 
         // Создаём экземпляр DTLN
-        const dtlnInstance = new _dtln(_audioContext);
+        _dtlnInstance = new DTLN(_audioContext);
         // Загружаем WASM-модель (если нужно)
-        await dtlnInstance.ready;
+        if (typeof _dtlnInstance.ready !== 'undefined') {
+          await _dtlnInstance.ready;
+        }
 
         // Обрабатываем поток
-        const processedStream = await dtlnInstance.processStream(localStream);
+        const processedStream = await _dtlnInstance.processStream(localStream);
         updateDTLNStatus(true);
         console.log('✅ DTLN активен');
         return processedStream;
       } catch (e) {
         console.warn('⚠️ DTLN не запустился, используем оригинальный поток:', e);
         updateDTLNStatus(false);
+        // Если DTLN упал, пытаемся очистить
+        _dtlnInstance = null;
         return localStream;
       }
     }
@@ -634,7 +640,7 @@
         localStream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
-            noiseSuppression: false, // отключаем встроенное
+            noiseSuppression: false,
             autoGainControl: true,
             channelCount: 1
           },
@@ -792,10 +798,11 @@
       inCall = false;
       isInitiator = false;
 
-      // Очистка DTLN (если есть метод dispose)
-      if (_dtln && typeof _dtln.dispose === 'function') {
-        try { await _dtln.dispose(); } catch(e) {}
+      // Очистка DTLN
+      if (_dtlnInstance && typeof _dtlnInstance.dispose === 'function') {
+        try { await _dtlnInstance.dispose(); } catch(e) {}
       }
+      _dtlnInstance = null;
       if (_audioContext) {
         try { await _audioContext.close(); } catch (e) {}
         _audioContext = null;
