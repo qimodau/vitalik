@@ -300,7 +300,6 @@
     let roomRef = null, isInitiator = false;
     let micMuted = false, deafened = false, inCall = false, hasLeft = false;
     let currentUser = null;
-    let noiseSuppressor = null;
 
     // ─── DOM ──────────────────────────────────────────────────────────────────
     const $joinBtn = document.getElementById('joinBtn');
@@ -562,51 +561,11 @@
       window._fb = { ref, set, get, onValue, off, push, remove, onDisconnect };
     }
 
-    // ─── NOISE SUPPRESSION (Jitsi RNNoise) ──────────────────────────────────
-async function initNoiseSuppression() {
-  try {
-    const { Vif } = await import('https://esm.sh/@4players/voice-filter');
-    window.__audioCtx = new AudioContext({ sampleRate: 44100 });
-
-    const filter = await Vif.create(false); // false = mono
-    const bufferSize = 1024;
-
-    const processor = window.__audioCtx.createScriptProcessor(bufferSize, 1, 1);
-    const source = window.__audioCtx.createMediaStreamSource(localStream);
-    const dest = window.__audioCtx.createMediaStreamDestination();
-
-    let ringBuffer = new Float32Array(0);
-
-    processor.onaudioprocess = (event) => {
-      const inputData = event.inputBuffer.getChannelData(0);
-      const outputData = event.outputBuffer.getChannelData(0);
-
-      const newBuf = new Float32Array(ringBuffer.length + inputData.length);
-      newBuf.set(ringBuffer);
-      newBuf.set(inputData, ringBuffer.length);
-      ringBuffer = newBuf;
-
-      while (ringBuffer.length >= 960) {
-        const frame = ringBuffer.slice(0, 960);
-        const processed = new Float32Array(960);
-        filter.processFrame(frame, processed);
-        const toWrite = Math.min(processed.length, outputData.length);
-        outputData.set(processed.subarray(0, toWrite));
-        ringBuffer = ringBuffer.slice(960);
-      }
-    };
-
-    source.connect(processor);
-    processor.connect(dest);
-
-    noiseSuppressor = filter;
-    console.log('✅ voice-filter active');
-    return dest.stream;
-  } catch(e) {
-    console.warn('⚠️ voice-filter не загрузился, fallback', e);
-    return localStream;
-  }
-}
+    // ─── NOISE SUPPRESSION (ВСТРОЕННОЕ БРАУЗЕРА) ────────────────────────────
+    async function initNoiseSuppression() {
+      // Используем встроенное шумоподавление браузера (noiseSuppression: true)
+      return localStream;
+    }
 
     // ─── CALL ─────────────────────────────────────────────────────────────────
     window.joinCall = async function() {
@@ -623,7 +582,7 @@ async function initNoiseSuppression() {
 
       try {
         localStream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true, channelCount: 1},
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1},
           video: false
         });
       } catch(e) {
@@ -775,14 +734,7 @@ async function initNoiseSuppression() {
       roomRef = null;
       if (pc) { pc.close(); pc = null; }
       if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream = null; }
-      if (noiseSuppressor) {
-      try { noiseSuppressor.destroy(); } catch(e) {}
-      noiseSuppressor = null;
-     }
-      if (window.__audioCtx) {
-      await window.__audioCtx.close();
-      window.__audioCtx = null;
-     }
+      window.__processedStream = null;
 
       $remoteAudio.srcObject = null;
       $controls.classList.remove('visible');
