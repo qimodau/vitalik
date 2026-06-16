@@ -95,15 +95,6 @@ input[type="text"], input[type="password"] {
 input:focus { border-color: var(--accent); }
 input::placeholder { color: var(--muted); opacity: 0.7; }
 
-.btn-copy {
-  background: var(--surface2); border: 1px solid var(--border);
-  border-radius: 8px; color: var(--muted); font-size: 14px;
-  padding: 10px 14px; cursor: pointer;
-  transition: color 0.15s, border-color 0.15s; white-space: nowrap;
-}
-.btn-copy:hover { color: var(--text); border-color: var(--accent); }
-.btn-copy.copied { color: var(--green); border-color: var(--green); }
-
 /* ── STATUS ── */
 .status-bar {
   display: flex; align-items: center; gap: 10px;
@@ -291,9 +282,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding-botto
 <!-- TOP BAR -->
 <div class="topbar">
   <div></div>
-  <div class="topbar-right" id="topbarRight">
-    <!-- заполняется JS -->
-  </div>
+  <div class="topbar-right" id="topbarRight"></div>
 </div>
 
 <!-- LOGIN OVERLAY -->
@@ -335,7 +324,10 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding-botto
     </div>
     <div class="field">
       <label>Пароль</label>
-      <input type="password" id="newAccPass" placeholder="придумай пароль" />
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="password" id="newAccPass" placeholder="придумай пароль" style="flex:1" />
+        <button type="button" onclick="togglePassVisibility()" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--muted)">👁️</button>
+      </div>
     </div>
     <div class="modal-err" id="managerErr"></div>
     <button class="btn-modal primary" onclick="createAccount()">Создать аккаунт</button>
@@ -524,17 +516,40 @@ function onLoggedIn() {
   $joinBtn.textContent = 'Войти в звонок';
   $joinBtn.className = 'btn-join primary';
   setStatus('idle', `Привет, ${currentUser.name}!`);
-  (document.getElementById('myAvatarText') || document.getElementById('myAvatar')).textContent = currentUser.name.slice(0,2).toUpperCase();
+
+  const savedAvatar = localStorage.getItem('voiceAvatar');
+  const av = document.getElementById('myAvatar');
+  if (savedAvatar) {
+    av.innerHTML = `<img src="${savedAvatar}" /><div class="avatar-upload-hint">📷</div>`;
+    av.onclick = () => document.getElementById('avatarInput').click();
+  } else {
+    av.innerHTML = `<span id="myAvatarText">${currentUser.name.slice(0,2).toUpperCase()}</span>`;
+    av.onclick = () => document.getElementById('avatarInput').click();
+  }
 }
 
 function renderTopbar() {
   if (!currentUser) { $topbarRight.innerHTML = ''; return; }
-  $topbarRight.innerHTML = `
-    <div class="user-chip" onclick="${currentUser.isAdmin ? 'openManager()' : 'doLogout()'}">
-      <div class="user-avatar-sm">${currentUser.name.slice(0,2).toUpperCase()}</div>
-      <span>${currentUser.name}</span>
-      ${currentUser.isAdmin ? '<span class="admin-badge">admin</span>' : ''}
-    </div>`;
+
+  const avatarHtml = `<div class="user-avatar-sm">${currentUser.name.slice(0,2).toUpperCase()}</div>`;
+  const nameHtml = `<span>${currentUser.name}</span>`;
+
+  if (currentUser.isAdmin) {
+    $topbarRight.innerHTML = `
+      <div class="user-chip">
+        <div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="doLogout()">
+          ${avatarHtml}
+          ${nameHtml}
+        </div>
+        <span class="admin-badge" style="cursor:pointer;margin-left:8px" onclick="openManager()">admin</span>
+      </div>`;
+  } else {
+    $topbarRight.innerHTML = `
+      <div class="user-chip" onclick="doLogout()">
+        ${avatarHtml}
+        ${nameHtml}
+      </div>`;
+  }
 }
 
 // ─── LOGIN ────────────────────────────────────────────────────────────────────
@@ -599,6 +614,7 @@ $managerOverlay.addEventListener('click', e => { if(e.target === $managerOverlay
 async function renderAccountList() {
   const list = document.getElementById('accountList');
   list.innerHTML = '<div class="empty-list">Загружаем...</div>';
+
   let rows = `<div class="account-row">
       <div class="account-row-info">
         <div class="account-row-name">${ADMIN_NAME}</div>
@@ -623,6 +639,7 @@ async function renderAccountList() {
       });
     }
   }
+
   list.innerHTML = rows;
 }
 
@@ -666,6 +683,13 @@ window.joinCall = async function() {
   if (!currentUser) return;
   if (!isConfigured()) { showError('Настрой Firebase — читай инструкцию ниже.'); return; }
   if (!db) { showError('Firebase инициализируется, подожди секунду.'); return; }
+
+  // Сбрасываем предыдущую комнату, если она осталась
+  if (roomRef) {
+    try { window._fb.off(roomRef); } catch(e){}
+    try { await window._fb.remove(roomRef); } catch(e){}
+    roomRef = null;
+  }
 
   clearError();
   const roomName = $roomInput.value.trim().replace(/\s+/g,'_').replace(/[^\w\u0400-\u04FF-]/g,'') || 'ее_звонок';
@@ -716,6 +740,26 @@ window.joinCall = async function() {
 let _signalingBusy = false;
 let _addedCandidates = new Set();
 
+// Вспомогательная функция для установки имени и аватарки собеседника
+async function setPeerNameAndAvatar(name) {
+  $peerName.textContent = name;
+  const av = document.getElementById('peerAvatar');
+  // Пытаемся загрузить аватарку из Firebase
+  let avatarUrl = null;
+  if (db) {
+    try {
+      const snap = await window._fb.get(window._fb.ref(db, `accounts/${name}/avatar`));
+      if (snap.exists()) avatarUrl = snap.val();
+    } catch(e) {}
+  }
+  if (avatarUrl) {
+    av.innerHTML = `<img src="${avatarUrl}" />`;
+  } else {
+    // Инициалы
+    av.innerHTML = `<span id="peerAvatarText">${name.slice(0,2).toUpperCase()}</span>`;
+  }
+}
+
 async function startWebRTC(roomName) {
   const { ref, set, onValue, push, remove, onDisconnect } = window._fb;
   roomRef = ref(db, `rooms/${roomName}`);
@@ -734,11 +778,11 @@ async function startWebRTC(roomName) {
     } else if (data.offer && !data.answer && !isInitiator) {
       if (inCall || _signalingBusy) return;
       _signalingBusy = true; isInitiator = false;
-      if (data.callerName) { document.getElementById('peerAvatarText').textContent = data.callerName.slice(0,2).toUpperCase(); $peerName.textContent = data.callerName; }
+      if (data.callerName) { setPeerNameAndAvatar(data.callerName); }
       await createAnswer(roomName, data.offer);
       _signalingBusy = false;
     } else if (data.answer && isInitiator && pc && pc.signalingState !== 'stable') {
-      if (data.calleeName) { document.getElementById('peerAvatarText').textContent = data.calleeName.slice(0,2).toUpperCase(); $peerName.textContent = data.calleeName; }
+      if (data.calleeName) { setPeerNameAndAvatar(data.calleeName); }
       await pc.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(()=>{});
     }
 
@@ -847,7 +891,8 @@ window.leaveCall = async function() {
   $remoteAudio.srcObject = null;
   $controls.classList.remove('visible');
   $avatars.classList.remove('visible');
-  $peerAvatar.textContent = '👤'; $peerName.textContent = 'Собеседник';
+  $peerAvatar.innerHTML = '<span id="peerAvatarText">👤</span>';
+  $peerName.textContent = 'Собеседник';
   setStatus('idle', 'Ты вышел из звонка');
   setCallUI(false);
   stopSpeakingDetection();
@@ -884,14 +929,22 @@ window.toggleDeaf = function() {
 };
 
 // ─── AVATAR UPLOAD ────────────────────────────────────────────────────────────
-window.loadAvatar = function(input) {
+window.loadAvatar = async function(input) {
   const file = input.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = (e) => {
-    document.getElementById('myAvatar').innerHTML = `<img src="${e.target.result}" /><div class="avatar-upload-hint">📷</div>`;
+  reader.onload = async (e) => {
+    const base64 = e.target.result;
+    document.getElementById('myAvatar').innerHTML = `<img src="${base64}" /><div class="avatar-upload-hint">📷</div>`;
     document.getElementById('myAvatar').onclick = () => document.getElementById('avatarInput').click();
-    localStorage.setItem('voiceAvatar', e.target.result);
+    localStorage.setItem('voiceAvatar', base64);
+
+    // Сохраняем аватарку в Firebase, если есть подключение и пользователь не админ
+    if (db && currentUser && !currentUser.isAdmin) {
+      try {
+        await window._fb.set(window._fb.ref(db, `accounts/${currentUser.name}/avatar`), base64);
+      } catch(e) {}
+    }
   };
   reader.readAsDataURL(file);
 };
@@ -997,6 +1050,18 @@ window.toggleRoomHint = function() {
   hint.style.display = open ? 'block' : 'none';
   btn.style.borderColor = open ? 'var(--accent)' : 'var(--muted)';
   btn.style.color = open ? 'var(--accent)' : 'var(--muted)';
+};
+
+window.togglePassVisibility = function() {
+  const inp = document.getElementById('newAccPass');
+  const btn = inp.nextElementSibling;
+  if (inp.type === 'password') {
+    inp.type = 'text';
+    btn.textContent = '🙈';
+  } else {
+    inp.type = 'password';
+    btn.textContent = '👁️';
+  }
 };
 </script>
 </body>
