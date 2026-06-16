@@ -8,7 +8,6 @@ class RnnoiseProcessor extends AudioWorkletProcessor {
     this._context = null;
     this._buffer = new Float32Array(RNNOISE_SAMPLE_LENGTH);
 
-    // Принимаем wasm-модуль из основного потока
     this.port.onmessage = (event) => {
       if (event.data.type === 'wasm') {
         const wasm = event.data.wasm;
