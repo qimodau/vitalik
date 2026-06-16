@@ -5,675 +5,105 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>виталик</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-    :root {
-      --bg: #0e0e10;
-      --surface: #18181b;
-      --surface2: #222228;
-      --border: #2e2e35;
-      --text: #efeff1;
-      --muted: #848494;
-      --accent: #7c6af7;
-      --accent-hover: #9b8fff;
-      --red: #e04040;
-      --red-hover: #f05050;
-      --green: #3dba6d;
-      --yellow: #e6a817;
-      --radius: 12px;
-    }
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      min-height: 100vh;
-      user-select: none;
-    }
-
-    /* ── TOP BAR ── */
-    .topbar {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 52px;
-      background: var(--surface);
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      padding: 0 20px;
-      z-index: 100;
-      justify-content: space-between;
-    }
-    .topbar-logo {
-      font-size: 15px;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .topbar-logo span {
-      font-size: 20px;
-    }
-    .topbar-right {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .user-chip {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 5px 12px 5px 8px;
-      cursor: pointer;
-      transition: border-color 0.15s;
-      font-size: 13px;
-      color: var(--text);
-    }
-    .user-chip:hover {
-      border-color: var(--accent);
-    }
-    .user-avatar-sm {
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      background: var(--accent);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 11px;
-      font-weight: 600;
-      color: #fff;
-      flex-shrink: 0;
-    }
-    .admin-badge {
-      font-size: 10px;
-      background: rgba(124, 106, 247, 0.2);
-      color: var(--accent);
-      border: 1px solid rgba(124, 106, 247, 0.4);
-      border-radius: 4px;
-      padding: 1px 5px;
-      font-weight: 600;
-    }
-
-    /* ── MAIN ── */
-    .main {
-      padding-top: 72px;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-    }
-    .wrap {
-      width: 100%;
-      max-width: 420px;
-      padding: 8px 20px 32px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 20px;
-    }
-    .header {
-      text-align: center;
-    }
-    .logo {
-      width: 56px;
-      height: 56px;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin: 0 auto 16px;
-      font-size: 26px;
-      overflow: hidden;
-    }
-    .logo img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      border-radius: 18px;
-    }
-    h1 {
-      font-size: 22px;
-      font-weight: 600;
-      letter-spacing: -0.3px;
-    }
-    .sub {
-      margin-top: 6px;
-      color: var(--muted);
-      font-size: 14px;
-      line-height: 1.5;
-    }
-
-    /* ── CARD ── */
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 20px;
-      width: 100%;
-      max-width: 300px;
-    }
-    .card-label {
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      color: var(--muted);
-      text-transform: uppercase;
-      margin-bottom: 10px;
-    }
-    .room-input-row {
-      display: flex;
-      gap: 8px;
-    }
-    input[type="text"],
-    input[type="password"] {
-      flex: 1;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px 14px;
-      color: var(--text);
-      font-size: 15px;
-      outline: none;
-      font-family: inherit;
-      transition: border-color 0.15s;
-      width: 100%;
-    }
-    input:focus {
-      border-color: var(--accent);
-    }
-    input::placeholder {
-      color: var(--muted);
-      opacity: 0.7;
-    }
-
-    /* ── STATUS ── */
-    .status-bar {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 14px 18px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      width: 100%;
-      min-height: 52px;
-      max-width: 300px;
-    }
-    .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--muted);
-      flex-shrink: 0;
-      transition: background 0.3s;
-    }
-    .dot.waiting {
-      background: var(--yellow);
-      animation: pulse 1.5s infinite;
-    }
-    .dot.connected {
-      background: var(--green);
-    }
-    .dot.error {
-      background: var(--red);
-    }
-    @keyframes pulse {
-      0%,
-      100% {
-        opacity: 1;
-      }
-      50% {
-        opacity: 0.4;
-      }
-    }
-    .status-text {
-      font-size: 14px;
-      color: var(--muted);
-      flex: 1;
-    }
-
-    /* ── AVATARS ── */
-    .avatars {
-      display: none;
-      gap: 20px;
-      align-items: center;
-      justify-content: center;
-      width: 100%;
-    }
-    .avatars.visible {
-      display: flex;
-    }
-    .avatar {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 10px;
-    }
-    .avatar-circle {
-      width: 80px;
-      height: 80px;
-      border-radius: 50%;
-      background: var(--surface2);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 22px;
-      font-weight: 600;
-      position: relative;
-      cursor: pointer;
-      border: 3px solid transparent;
-      box-shadow: 0 0 0 0 rgba(61, 186, 109, 0);
-      transition: box-shadow 0.15s, border-color 0.15s;
-      overflow: hidden;
-    }
-    .avatar-circle img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      border-radius: 50%;
-      pointer-events: none;
-    }
-    .avatar-circle.speaking {
-      border-color: var(--green);
-      box-shadow: 0 0 0 4px rgba(61, 186, 109, 0.35), 0 0 16px rgba(61, 186, 109, 0.2);
-      animation: ring-pulse 1.2s ease-in-out infinite;
-    }
-    @keyframes ring-pulse {
-      0%,
-      100% {
-        box-shadow: 0 0 0 4px rgba(61, 186, 109, 0.35), 0 0 16px rgba(61, 186, 109, 0.15);
-      }
-      50% {
-        box-shadow: 0 0 0 7px rgba(61, 186, 109, 0.2), 0 0 22px rgba(61, 186, 109, 0.1);
-      }
-    }
-    .avatar-circle.muted-self::after {
-      content: '🔇';
-      position: absolute;
-      bottom: 0;
-      right: 0;
-      font-size: 14px;
-      background: var(--surface);
-      border-radius: 50%;
-      width: 22px;
-      height: 22px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      line-height: 22px;
-    }
-    .avatar-upload-hint {
-      position: absolute;
-      inset: 0;
-      border-radius: 50%;
-      background: rgba(0, 0, 0, 0.45);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 20px;
-      opacity: 0;
-      transition: opacity 0.15s;
-    }
-    .avatar-circle:hover .avatar-upload-hint {
-      opacity: 1;
-    }
-    .avatar-name {
-      font-size: 13px;
-      color: var(--muted);
-      font-weight: 500;
-    }
-    .sep-arrow {
-      color: var(--muted);
-      font-size: 22px;
-    }
-
-    /* ── BUTTONS ── */
-    .btn-join {
-      width: 100%;
-      padding: 14px;
-      border-radius: var(--radius);
-      border: none;
-      font-size: 15px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.15s, transform 0.1s;
-      font-family: inherit;
-      max-width: 300px;
-    }
-    .btn-join:active {
-      transform: scale(0.98);
-    }
-    .btn-join.primary {
-      background: var(--accent);
-      color: #fff;
-    }
-    .btn-join.primary:hover {
-      background: var(--accent-hover);
-    }
-    .btn-join.secondary {
-      background: var(--surface2);
-      color: var(--text);
-      border: 1px solid var(--border);
-    }
-    .btn-join.secondary:hover {
-      border-color: var(--accent);
-      color: var(--accent-hover);
-    }
-    .btn-join:disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-    }
-
-    .controls {
-      display: none;
-      gap: 12px;
-      width: 100%;
-    }
-    .controls.visible {
-      display: flex;
-    }
-    .ctrl-btn {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 6px;
-      padding: 14px 8px;
-      border-radius: var(--radius);
-      border: 1px solid var(--border);
-      background: var(--surface);
-      color: var(--text);
-      cursor: pointer;
-      transition: background 0.15s, border-color 0.15s, color 0.15s;
-      font-family: inherit;
-    }
-    .ctrl-btn:hover {
-      background: var(--surface2);
-      border-color: var(--accent);
-    }
-    .ctrl-btn.active {
-      background: rgba(224, 64, 64, 0.12);
-      border-color: var(--red);
-      color: var(--red);
-    }
-    .ctrl-btn.active:hover {
-      background: rgba(224, 64, 64, 0.2);
-    }
-    .ctrl-icon {
-      font-size: 20px;
-      line-height: 1;
-    }
-    .ctrl-label {
-      font-size: 11px;
-      font-weight: 500;
-      letter-spacing: 0.02em;
-      color: inherit;
-      text-align: center;
-      line-height: 1.3;
-    }
-    .btn-leave {
-      flex: 0 0 auto;
-      width: 56px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 6px;
-      padding: 14px 8px;
-      border-radius: var(--radius);
-      border: none;
-      background: var(--red);
-      color: #fff;
-      cursor: pointer;
-      transition: background 0.15s;
-      font-family: inherit;
-    }
-    .btn-leave:hover {
-      background: var(--red-hover);
-    }
-    .btn-leave .ctrl-label {
-      color: #fff;
-    }
-
-    /* ── ERROR ── */
-    .error-box {
-      display: none;
-      padding: 12px 16px;
-      background: rgba(224, 64, 64, 0.08);
-      border: 1px solid rgba(224, 64, 64, 0.3);
-      border-radius: 8px;
-      color: var(--red);
-      font-size: 13px;
-      line-height: 1.5;
-      width: 100%;
-      text-align: center;
-    }
-    .error-box.visible {
-      display: block;
-    }
-
-    /* ── OVERLAY ── */
-    .overlay {
-      display: none;
-      position: fixed;
-      inset: 0;
-      z-index: 200;
-      background: var(--bg);
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-    .overlay.open {
-      display: flex;
-    }
-    #managerOverlay,
-    #avatarPanelOverlay {
-      background: rgba(0, 0, 0, 0.75);
-    }
-    .modal {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 32px 28px;
-      width: 100%;
-      max-width: 360px;
-      display: flex;
-      flex-direction: column;
-      gap: 18px;
-    }
-    #loginOverlay .modal {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      box-shadow: 0 0 0 1px rgba(124, 106, 247, 0.08);
-    }
-    .modal h2 {
-      font-size: 18px;
-      font-weight: 600;
-    }
-    .modal-sub {
-      font-size: 13px;
-      color: var(--muted);
-      margin-top: -8px;
-    }
-    .field {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-    .field label {
-      font-size: 12px;
-      color: var(--muted);
-      font-weight: 500;
-    }
-    .btn-modal {
-      padding: 11px 16px;
-      border-radius: 10px;
-      border: none;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      font-family: inherit;
-      transition: background 0.15s;
-      text-align: center;
-    }
-    .btn-modal.primary {
-      background: var(--accent);
-      color: #fff;
-      width: 100%;
-    }
-    .btn-modal.primary:hover {
-      background: var(--accent-hover);
-    }
-    .btn-modal.ghost {
-      background: transparent;
-      color: var(--muted);
-      border: 1px solid var(--border);
-      width: 100%;
-    }
-    .btn-modal.ghost:hover {
-      border-color: var(--accent);
-      color: var(--text);
-    }
-    .btn-modal.danger {
-      background: rgba(224, 64, 64, 0.12);
-      color: var(--red);
-      border: 1px solid rgba(224, 64, 64, 0.3);
-    }
-    .btn-modal.danger:hover {
-      background: rgba(224, 64, 64, 0.22);
-    }
-    .modal-err {
-      font-size: 13px;
-      color: var(--red);
-      text-align: center;
-      min-height: 18px;
-    }
-
-    .account-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      max-height: 260px;
-      overflow-y: auto;
-    }
-    .account-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px 12px;
-    }
-    .account-row-info {
-      flex: 1;
-    }
-    .account-row-name {
-      font-size: 14px;
-      font-weight: 500;
-    }
-    .account-row-role {
-      font-size: 11px;
-      color: var(--muted);
-      margin-top: 2px;
-    }
-    .account-row-del {
-      background: none;
-      border: none;
-      color: var(--muted);
-      cursor: pointer;
-      font-size: 16px;
-      padding: 2px 6px;
-      border-radius: 6px;
-      transition: color 0.15s, background 0.15s;
-    }
-    .account-row-del:hover {
-      color: var(--red);
-      background: rgba(224, 64, 64, 0.1);
-    }
-    .divider {
-      border: none;
-      border-top: 1px solid var(--border);
-      margin: 0;
-    }
-    .section-title {
-      font-size: 12px;
-      color: var(--muted);
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-    }
-    .empty-list {
-      font-size: 13px;
-      color: var(--muted);
-      text-align: center;
-      padding: 16px 0;
-    }
-    footer {
-      color: var(--muted);
-      font-size: 12px;
-      text-align: center;
-      padding-bottom: 8px;
-    }
-
-    .code-block {
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 12px 14px;
-      font-size: 12px;
-      font-family: monospace;
-      color: var(--muted);
-      overflow-x: auto;
-      white-space: pre-wrap;
-      word-break: break-all;
-      margin-top: 6px;
-    }
-    .cfg-key {
-      color: var(--accent);
-    }
-    .cfg-val {
-      color: var(--green);
-    }
-
-    /* RNNoise status pill */
-    .ns-status {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      font-size: 10px;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 2px 10px 2px 8px;
-      color: var(--muted);
-      font-weight: 500;
-      letter-spacing: 0.02em;
-      margin-left: 8px;
-    }
-    .ns-status.active {
-      border-color: var(--green);
-      color: var(--green);
-    }
-    .ns-status .dot-ns {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--muted);
-    }
-    .ns-status.active .dot-ns {
-      background: var(--green);
-    }
+    /* ── все ваши стили без изменений (сохранены полностью) ── */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root { --bg: #0e0e10; --surface: #18181b; --surface2: #222228; --border: #2e2e35; --text: #efeff1; --muted: #848494; --accent: #7c6af7; --accent-hover: #9b8fff; --red: #e04040; --red-hover: #f05050; --green: #3dba6d; --yellow: #e6a817; --radius: 12px; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; user-select: none; }
+    .topbar { position: fixed; top: 0; left: 0; right: 0; height: 52px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; z-index: 100; justify-content: space-between; }
+    .topbar-logo { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    .topbar-logo span { font-size: 20px; }
+    .topbar-right { display: flex; align-items: center; gap: 10px; }
+    .user-chip { display: flex; align-items: center; gap: 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 5px 12px 5px 8px; cursor: pointer; transition: border-color 0.15s; font-size: 13px; color: var(--text); }
+    .user-chip:hover { border-color: var(--accent); }
+    .user-avatar-sm { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #fff; flex-shrink: 0; }
+    .admin-badge { font-size: 10px; background: rgba(124,106,247,0.2); color: var(--accent); border: 1px solid rgba(124,106,247,0.4); border-radius: 4px; padding: 1px 5px; font-weight: 600; }
+    .main { padding-top: 72px; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .wrap { width: 100%; max-width: 420px; padding: 8px 20px 32px; display: flex; flex-direction: column; align-items: center; gap: 20px; }
+    .header { text-align: center; }
+    .logo { width: 56px; height: 56px; background: var(--surface2); border: 1px solid var(--border); border-radius: 18px; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 26px; overflow: hidden; }
+    .logo img { width: 100%; height: 100%; object-fit: cover; border-radius: 18px; }
+    h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.3px; }
+    .sub { margin-top: 6px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; width: 100%; max-width: 300px; }
+    .card-label { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; color: var(--muted); text-transform: uppercase; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; }
+    .room-input-row { display: flex; gap: 8px; }
+    input[type="text"], input[type="password"] { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; color: var(--text); font-size: 15px; outline: none; font-family: inherit; transition: border-color 0.15s; width: 100%; }
+    input:focus { border-color: var(--accent); }
+    input::placeholder { color: var(--muted); opacity: 0.7; }
+    .status-bar { display: flex; align-items: center; gap: 10px; padding: 14px 18px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); width: 100%; min-height: 52px; max-width: 300px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; transition: background 0.3s; }
+    .dot.waiting { background: var(--yellow); animation: pulse 1.5s infinite; }
+    .dot.connected { background: var(--green); }
+    .dot.error { background: var(--red); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .status-text { font-size: 14px; color: var(--muted); flex: 1; }
+    .avatars { display: none; gap: 20px; align-items: center; justify-content: center; width: 100%; }
+    .avatars.visible { display: flex; }
+    .avatar { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+    .avatar-circle { width: 80px; height: 80px; border-radius: 50%; background: var(--surface2); display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 600; position: relative; cursor: pointer; border: 3px solid transparent; box-shadow: 0 0 0 0 rgba(61,186,109,0); transition: box-shadow 0.15s, border-color 0.15s; overflow: hidden; }
+    .avatar-circle img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; pointer-events: none; }
+    .avatar-circle.speaking { border-color: var(--green); box-shadow: 0 0 0 4px rgba(61,186,109,0.35), 0 0 16px rgba(61,186,109,0.2); animation: ring-pulse 1.2s ease-in-out infinite; }
+    @keyframes ring-pulse { 0%,100% { box-shadow: 0 0 0 4px rgba(61,186,109,0.35), 0 0 16px rgba(61,186,109,0.15); } 50% { box-shadow: 0 0 0 7px rgba(61,186,109,0.2), 0 0 22px rgba(61,186,109,0.1); } }
+    .avatar-circle.muted-self::after { content:'🔇'; position:absolute; bottom:0; right:0; font-size:14px; background:var(--surface); border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; line-height:22px; }
+    .avatar-upload-hint { position:absolute; inset:0; border-radius:50%; background:rgba(0,0,0,0.45); display:flex; align-items:center; justify-content:center; font-size:20px; opacity:0; transition:opacity 0.15s; }
+    .avatar-circle:hover .avatar-upload-hint { opacity:1; }
+    .avatar-name { font-size: 13px; color: var(--muted); font-weight: 500; }
+    .sep-arrow { color: var(--muted); font-size: 22px; }
+    .btn-join { width: 100%; padding: 14px; border-radius: var(--radius); border: none; font-size: 15px; font-weight: 600; cursor: pointer; transition: background 0.15s, transform 0.1s; font-family: inherit; max-width: 300px; }
+    .btn-join:active { transform: scale(0.98); }
+    .btn-join.primary { background: var(--accent); color: #fff; }
+    .btn-join.primary:hover { background: var(--accent-hover); }
+    .btn-join.secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn-join.secondary:hover { border-color: var(--accent); color: var(--accent-hover); }
+    .btn-join:disabled { opacity: 0.4; cursor: not-allowed; }
+    .controls { display: none; gap: 12px; width: 100%; }
+    .controls.visible { display: flex; }
+    .ctrl-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 8px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; font-family: inherit; }
+    .ctrl-btn:hover { background: var(--surface2); border-color: var(--accent); }
+    .ctrl-btn.active { background: rgba(224,64,64,0.12); border-color: var(--red); color: var(--red); }
+    .ctrl-btn.active:hover { background: rgba(224,64,64,0.2); }
+    .ctrl-icon { font-size: 20px; line-height: 1; }
+    .ctrl-label { font-size: 11px; font-weight: 500; letter-spacing: 0.02em; color: inherit; text-align: center; line-height: 1.3; }
+    .btn-leave { flex: 0 0 auto; width: 56px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 8px; border-radius: var(--radius); border: none; background: var(--red); color: #fff; cursor: pointer; transition: background 0.15s; font-family: inherit; }
+    .btn-leave:hover { background: var(--red-hover); }
+    .btn-leave .ctrl-label { color: #fff; }
+    .error-box { display: none; padding: 12px 16px; background: rgba(224,64,64,0.08); border: 1px solid rgba(224,64,64,0.3); border-radius: 8px; color: var(--red); font-size: 13px; line-height: 1.5; width: 100%; text-align: center; }
+    .error-box.visible { display: block; }
+    .overlay { display: none; position: fixed; inset: 0; z-index: 200; background: var(--bg); align-items: center; justify-content: center; padding: 20px; }
+    .overlay.open { display: flex; }
+    #managerOverlay, #avatarPanelOverlay { background: rgba(0,0,0,0.75); }
+    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 32px 28px; width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 18px; }
+    #loginOverlay .modal { background: var(--surface); border: 1px solid var(--border); box-shadow: 0 0 0 1px rgba(124,106,247,0.08); }
+    .modal h2 { font-size: 18px; font-weight: 600; }
+    .modal-sub { font-size: 13px; color: var(--muted); margin-top: -8px; }
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: 12px; color: var(--muted); font-weight: 500; }
+    .btn-modal { padding: 11px 16px; border-radius: 10px; border: none; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; transition: background 0.15s; text-align: center; }
+    .btn-modal.primary { background: var(--accent); color: #fff; width: 100%; }
+    .btn-modal.primary:hover { background: var(--accent-hover); }
+    .btn-modal.ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); width: 100%; }
+    .btn-modal.ghost:hover { border-color: var(--accent); color: var(--text); }
+    .btn-modal.danger { background: rgba(224,64,64,0.12); color: var(--red); border: 1px solid rgba(224,64,64,0.3); }
+    .btn-modal.danger:hover { background: rgba(224,64,64,0.22); }
+    .modal-err { font-size: 13px; color: var(--red); text-align: center; min-height: 18px; }
+    .account-list { display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto; }
+    .account-row { display: flex; align-items: center; gap: 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+    .account-row-info { flex: 1; }
+    .account-row-name { font-size: 14px; font-weight: 500; }
+    .account-row-role { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .account-row-del { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 2px 6px; border-radius: 6px; transition: color 0.15s, background 0.15s; }
+    .account-row-del:hover { color: var(--red); background: rgba(224,64,64,0.1); }
+    .divider { border: none; border-top: 1px solid var(--border); margin: 0; }
+    .section-title { font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+    .empty-list { font-size: 13px; color: var(--muted); text-align: center; padding: 16px 0; }
+    footer { color: var(--muted); font-size: 12px; text-align: center; padding-bottom: 8px; }
+    .code-block { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; font-size: 12px; font-family: monospace; color: var(--muted); overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin-top: 6px; }
+    .cfg-key { color: var(--accent); }
+    .cfg-val { color: var(--green); }
+    .ns-status { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 2px 10px 2px 8px; color: var(--muted); font-weight: 500; letter-spacing: 0.02em; margin-left: 8px; }
+    .ns-status.active { border-color: var(--green); color: var(--green); }
+    .ns-status .dot-ns { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+    .ns-status.active .dot-ns { background: var(--green); }
   </style>
 </head>
 <body>
@@ -774,7 +204,7 @@
       <div class="status-bar" id="statusBar">
         <div class="dot" id="dot"></div>
         <span class="status-text" id="statusText">Войди в аккаунт чтобы начать</span>
-        <span class="ns-status" id="nsStatus"><span class="dot-ns"></span> RNNoise</span>
+        <span class="ns-status" id="nsStatus"><span class="dot-ns"></span> Denoise</span>
       </div>
 
       <div class="avatars" id="avatars">
@@ -819,7 +249,7 @@
         <p>Для работы нужен бесплатный Firebase Realtime Database. Создай проект и вставь конфиг в функцию <code>getFirebaseConfig()</code>:</p>
         <div class="code-block"><span class="cfg-key">apiKey</span>: <span class="cfg-val">"AIza..."</span>,<span class="cfg-key">authDomain</span>: <span class="cfg-val">"..."</span>,...</div>
       </div>
-      <footer>WebRTC · RNNoise · p2p</footer>
+      <footer>WebRTC · Denoise (LiveKit) · p2p</footer>
     </div>
   </div>
 
@@ -858,11 +288,9 @@
       hasLeft = false;
     let currentUser = null;
 
-    // ─── RNNoise ──────────────────────────────────────────────────────────────
-    const RNNOISE_CDN = 'https://cdn.jsdelivr.net/npm/@shiguredo/noise-suppression@latest/dist/noise_suppression.js';
-    let NoiseSuppressionProcessor = null; // класс, загруженный динамически
-    let _rnnoiseProcessor = null;
-    let _rnnoiseActive = false;
+    // ─── Denoise (LiveKit) ──────────────────────────────────────────────────
+    let _denoiseProcessor = null;
+    let _audioContext = null;
 
     // ─── DOM ──────────────────────────────────────────────────────────────────
     const $joinBtn = document.getElementById('joinBtn');
@@ -905,13 +333,9 @@
         await initFirebase();
       }
 
-      // Загружаем RNNoise (ES-модуль) динамически
-      await loadRNNoise();
-
       const saved = sessionStorage.getItem('voiceUser');
       if (saved) {
-        try { currentUser = JSON.parse(saved);
-          onLoggedIn(); } catch { showLogin(); }
+        try { currentUser = JSON.parse(saved); onLoggedIn(); } catch { showLogin(); }
       } else {
         showLogin();
       }
@@ -922,33 +346,7 @@
       return cfg.databaseURL && cfg.databaseURL.length > 5;
     }
 
-    // ─── ДИНАМИЧЕСКАЯ ЗАГРУЗКА RNNOISE (как ES-модуль) ─────────────────────
-    async function loadRNNoise() {
-      try {
-        const module = await import(RNNOISE_CDN);
-        // Ожидаем, что модуль экспортирует класс NoiseSuppressionProcessor
-        if (module.NoiseSuppressionProcessor) {
-          NoiseSuppressionProcessor = module.NoiseSuppressionProcessor;
-          updateRNNoiseStatus(true);
-          console.log('✅ RNNoise загружен как ES-модуль');
-        } else {
-          // fallback: возможно экспорт по умолчанию
-          if (module.default && module.default.NoiseSuppressionProcessor) {
-            NoiseSuppressionProcessor = module.default.NoiseSuppressionProcessor;
-            updateRNNoiseStatus(true);
-            console.log('✅ RNNoise загружен (default)');
-          } else {
-            throw new Error('Не найден NoiseSuppressionProcessor');
-          }
-        }
-      } catch (e) {
-        console.warn('⚠️ RNNoise не загрузился, используется браузерное шумоподавление:', e);
-        updateRNNoiseStatus(false);
-        NoiseSuppressionProcessor = null;
-      }
-    }
-
-    function updateRNNoiseStatus(active) {
+    function updateDenoiseStatus(active) {
       if (active) {
         $nsStatus.classList.add('active');
         $nsStatus.querySelector('.dot-ns').style.background = 'var(--green)';
@@ -956,10 +354,6 @@
         $nsStatus.classList.remove('active');
         $nsStatus.querySelector('.dot-ns').style.background = 'var(--muted)';
       }
-    }
-
-    function checkRNNoise() {
-      return !!NoiseSuppressionProcessor;
     }
 
     // ─── AUTH UI ─────────────────────────────────────────────────────────────
@@ -980,8 +374,7 @@
       if (!savedAvatar && db && currentUser && !currentUser.isAdmin) {
         try {
           const snap = await window._fb.get(window._fb.ref(db, `accounts/${currentUser.name}/avatar`));
-          if (snap.exists()) { savedAvatar = snap.val();
-            localStorage.setItem('voiceAvatar', savedAvatar); }
+          if (snap.exists()) { savedAvatar = snap.val(); localStorage.setItem('voiceAvatar', savedAvatar); }
         } catch (e) {}
       }
       if (savedAvatar) {
@@ -1074,8 +467,7 @@
     $avatarPanelOverlay.addEventListener('click', e => { if (e.target === $avatarPanelOverlay) closeAvatarPanel(); });
 
     window.uploadPanelAvatar = function(input) {
-      const file = input.files[0];
-      if (!file) return;
+      const file = input.files[0]; if (!file) return;
       const reader = new FileReader();
       reader.onload = async (e) => {
         const base64 = e.target.result;
@@ -1124,15 +516,13 @@
     async function renderAccountList() {
       const list = document.getElementById('accountList');
       list.innerHTML = '<div class="empty-list">Загружаем...</div>';
-      let rows =
-        `<div class="account-row"><div class="account-row-info"><div class="account-row-name">${ADMIN_NAME}</div><div class="account-row-role">Администратор · нельзя удалить</div></div><span class="admin-badge">admin</span></div>`;
+      let rows = `<div class="account-row"><div class="account-row-info"><div class="account-row-name">${ADMIN_NAME}</div><div class="account-row-role">Администратор · нельзя удалить</div></div><span class="admin-badge">admin</span></div>`;
       if (db) {
         const { ref, get } = window._fb;
         const snap = await get(ref(db, 'accounts'));
         if (snap.exists()) {
           Object.keys(snap.val()).sort().forEach(name => {
-            rows +=
-              `<div class="account-row"><div class="account-row-info"><div class="account-row-name">${escHtml(name)}</div><div class="account-row-role">Пользователь</div></div><button class="account-row-del" onclick="deleteAccount('${escHtml(name)}')">✕</button></div>`;
+            rows += `<div class="account-row"><div class="account-row-info"><div class="account-row-name">${escHtml(name)}</div><div class="account-row-role">Пользователь</div></div><button class="account-row-del" onclick="deleteAccount('${escHtml(name)}')">✕</button></div>`;
           });
         }
       }
@@ -1174,40 +564,36 @@
       window._fb = { ref, set, get, onValue, off, push, remove, onDisconnect };
     }
 
-    // ─── RNNOISE (ВНЕШНЕЕ ШУМОПОДАВЛЕНИЕ) ──────────────────────────────────
+    // ─── ШУМОПОДАВЛЕНИЕ ЧЕРЕЗ @cc-livekit/denoise-plugin ──────────────────
     async function initNoiseSuppression() {
-      // Проверяем, загружен ли класс
-      if (!checkRNNoise()) {
-        console.warn('RNNoise не доступен, используем оригинальный поток');
-        return localStream;
-      }
-
       try {
-        // Создаём процессор (assets будут загружены с того же CDN)
-        if (!_rnnoiseProcessor) {
-          // Путь к assets – та же директория, где лежит основной скрипт
-          const assetsPath = 'https://cdn.jsdelivr.net/npm/@shiguredo/noise-suppression@latest/dist';
-          _rnnoiseProcessor = new NoiseSuppressionProcessor(assetsPath);
-          console.log('🔇 RNNoise процессор создан');
+        // Динамический импорт из CDN
+        const { DenoiseProcessor } = await import(
+          'https://cdn.jsdelivr.net/npm/@cc-livekit/denoise-plugin@latest/dist/index.js'
+        );
+
+        // Создаём AudioContext, если ещё не создан
+        if (!_audioContext) {
+          _audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          // Важно: если контекст в suspended, резюмируем
+          if (_audioContext.state === 'suspended') {
+            await _audioContext.resume();
+          }
         }
 
-        const originalTrack = localStream.getAudioTracks()[0];
-        if (!originalTrack) {
-          console.warn('Нет аудио-трека, используем оригинальный поток');
-          return localStream;
-        }
+        // Создаём процессор
+        _denoiseProcessor = new DenoiseProcessor(_audioContext);
+        // Загружаем WASM-модель
+        await _denoiseProcessor.load();
 
-        console.log('⏳ Запускаем RNNoise обработку...');
-        const processedTrack = await _rnnoiseProcessor.startProcessing(originalTrack);
-        const processedStream = new MediaStream([processedTrack]);
-        _rnnoiseActive = true;
-        updateRNNoiseStatus(true);
-        console.log('✅ RNNoise активен');
+        // Обрабатываем поток
+        const processedStream = await _denoiseProcessor.processStream(localStream);
+        updateDenoiseStatus(true);
+        console.log('✅ DenoisePlugin (LiveKit) активен');
         return processedStream;
       } catch (e) {
-        console.warn('❌ RNNoise не запустился, используем оригинальный поток:', e);
-        _rnnoiseActive = false;
-        updateRNNoiseStatus(false);
+        console.warn('⚠️ DenoisePlugin не запустился, используем оригинальный поток:', e);
+        updateDenoiseStatus(false);
         return localStream;
       }
     }
@@ -1229,7 +615,7 @@
         localStream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
-            noiseSuppression: false, // отключаем встроенное, чтобы RNNoise был чистым
+            noiseSuppression: false, // отключаем встроенное, чтобы дать шанс нашему
             autoGainControl: true,
             channelCount: 1
           },
@@ -1241,7 +627,7 @@
         return;
       }
 
-      // Запускаем RNNoise
+      // Запускаем шумоподавление
       window.__processedStream = await initNoiseSuppression();
 
       hasLeft = false;
@@ -1344,8 +730,7 @@
 
       connection.ontrack = (event) => {
         event.streams[0].getTracks().forEach(t => remoteStream.addTrack(t));
-        if (!inCall) { inCall = true;
-          onConnected(); }
+        if (!inCall) { inCall = true; onConnected(); }
       };
       connection.onicecandidate = (event) => {
         if (event.candidate) {
@@ -1388,15 +773,18 @@
       inCall = false;
       isInitiator = false;
 
-      // Очистка RNNoise
-      if (_rnnoiseProcessor) {
+      // Очистка Denoise
+      if (_denoiseProcessor) {
         try {
-          _rnnoiseProcessor.stopProcessing();
-          console.log('🔇 RNNoise остановлен');
-        } catch (e) { console.warn('Ошибка остановки RNNoise:', e); }
-        _rnnoiseProcessor = null;
-        _rnnoiseActive = false;
-        updateRNNoiseStatus(false);
+          await _denoiseProcessor.dispose();
+          console.log('🧹 DenoiseProcessor очищен');
+        } catch (e) { console.warn('Ошибка при очистке Denoise:', e); }
+        _denoiseProcessor = null;
+        updateDenoiseStatus(false);
+      }
+      if (_audioContext) {
+        try { await _audioContext.close(); } catch (e) {}
+        _audioContext = null;
       }
 
       if (roomRef && window._fb) {
@@ -1404,10 +792,8 @@
         try { await window._fb.remove(roomRef); } catch (e) {}
       }
       roomRef = null;
-      if (pc) { pc.close();
-        pc = null; }
+      if (pc) { pc.close(); pc = null; }
 
-      // Останавливаем все потоки
       if (localStream) {
         localStream.getTracks().forEach(t => t.stop());
         localStream = null;
@@ -1455,14 +841,11 @@
       }
     }
 
-    window.toggleDeaf = function() { deafened = !deafened;
-      $remoteAudio.muted = deafened;
-      updateDeafUI(); };
+    window.toggleDeaf = function() { deafened = !deafened; $remoteAudio.muted = deafened; updateDeafUI(); };
 
-    // ─── AVATAR UPLOAD (call screen) ──────────────────────────────────────────
+    // ─── AVATAR UPLOAD ──────────────────────────────────────────────────────
     window.loadAvatar = async function(input) {
-      const file = input.files[0];
-      if (!file) return;
+      const file = input.files[0]; if (!file) return;
       const reader = new FileReader();
       reader.onload = async (e) => {
         const base64 = e.target.result;
@@ -1488,39 +871,32 @@
     })();
 
     // ─── SPEAKING DETECTION ──────────────────────────────────────────────────
-    let _audioCtx = null,
-      _analyserLocal = null,
-      _analyserRemote = null;
-    let _speakIntervalLocal = null,
-      _speakIntervalRemote = null;
+    let _audioCtx = null, _analyserLocal = null, _analyserRemote = null;
+    let _speakIntervalLocal = null, _speakIntervalRemote = null;
 
     function startSpeakingDetection() {
       try {
-        _audioCtx = new(window.AudioContext || window.webkitAudioContext)();
+        _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const stream = window.__processedStream || localStream;
         if (stream) {
           const src = _audioCtx.createMediaStreamSource(stream);
-          _analyserLocal = _audioCtx.createAnalyser();
-          _analyserLocal.fftSize = 512;
-          src.connect(_analyserLocal);
+          _analyserLocal = _audioCtx.createAnalyser(); _analyserLocal.fftSize = 512; src.connect(_analyserLocal);
           const data = new Uint8Array(_analyserLocal.frequencyBinCount);
           _speakIntervalLocal = setInterval(() => {
             if (!_analyserLocal) return;
             _analyserLocal.getByteFrequencyData(data);
-            const vol = data.reduce((a, b) => a + b, 0) / data.length;
+            const vol = data.reduce((a,b)=>a+b,0) / data.length;
             document.getElementById('myAvatar').classList.toggle('speaking', vol > 8 && !micMuted);
           }, 80);
         }
         if ($remoteAudio.srcObject) {
           const src2 = _audioCtx.createMediaStreamSource($remoteAudio.srcObject);
-          _analyserRemote = _audioCtx.createAnalyser();
-          _analyserRemote.fftSize = 512;
-          src2.connect(_analyserRemote);
+          _analyserRemote = _audioCtx.createAnalyser(); _analyserRemote.fftSize = 512; src2.connect(_analyserRemote);
           const data2 = new Uint8Array(_analyserRemote.frequencyBinCount);
           _speakIntervalRemote = setInterval(() => {
             if (!_analyserRemote) return;
             _analyserRemote.getByteFrequencyData(data2);
-            const vol2 = data2.reduce((a, b) => a + b, 0) / data2.length;
+            const vol2 = data2.reduce((a,b)=>a+b,0) / data2.length;
             document.getElementById('peerAvatar').classList.toggle('speaking', vol2 > 8);
           }, 80);
         }
@@ -1528,13 +904,10 @@
     }
 
     function stopSpeakingDetection() {
-      clearInterval(_speakIntervalLocal);
-      clearInterval(_speakIntervalRemote);
-      _speakIntervalLocal = null;
-      _speakIntervalRemote = null;
-      if (_audioCtx) { try { _audioCtx.close(); } catch (e) {} _audioCtx = null; }
-      _analyserLocal = null;
-      _analyserRemote = null;
+      clearInterval(_speakIntervalLocal); clearInterval(_speakIntervalRemote);
+      _speakIntervalLocal = null; _speakIntervalRemote = null;
+      if (_audioCtx) { try { _audioCtx.close(); } catch(e) {} _audioCtx = null; }
+      _analyserLocal = null; _analyserRemote = null;
       document.getElementById('myAvatar').classList.remove('speaking');
       document.getElementById('peerAvatar').classList.remove('speaking');
     }
@@ -1549,13 +922,9 @@
 
     function updateDeafUI() {
       if (deafened) {
-        $deafIcon.textContent = '🔇';
-        $deafLabel.textContent = 'Звук выкл';
-        $deafBtn.classList.add('active');
+        $deafIcon.textContent = '🔇'; $deafLabel.textContent = 'Звук выкл'; $deafBtn.classList.add('active');
       } else {
-        $deafIcon.textContent = '🔊';
-        $deafLabel.textContent = 'Звук';
-        $deafBtn.classList.remove('active');
+        $deafIcon.textContent = '🔊'; $deafLabel.textContent = 'Звук'; $deafBtn.classList.remove('active');
       }
     }
 
@@ -1568,14 +937,10 @@
     }
 
     function showError(msg) {
-      $errorBox.textContent = msg;
-      $errorBox.classList.add('visible');
-      setStatus('error', 'Ошибка');
-      $joinBtn.disabled = false;
+      $errorBox.textContent = msg; $errorBox.classList.add('visible');
+      setStatus('error', 'Ошибка'); $joinBtn.disabled = false;
     }
-
-    function clearError() { $errorBox.textContent = '';
-      $errorBox.classList.remove('visible'); }
+    function clearError() { $errorBox.textContent = ''; $errorBox.classList.remove('visible'); }
 
     window.toggleRoomHint = function() {
       const hint = document.getElementById('roomHint');
