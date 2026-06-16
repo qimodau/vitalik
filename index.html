@@ -563,7 +563,7 @@
     }
 
     // ─── NOISE SUPPRESSION (Jitsi RNNoise) ──────────────────────────────────
-async function initNoiseSuppression() {
+   async function initNoiseSuppression() {
   try {
     window.__audioCtx = new AudioContext({ sampleRate: 44100 });
     await window.__audioCtx.audioWorklet.addModule('./rnnoise-processor.js');
