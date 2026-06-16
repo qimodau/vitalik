@@ -563,23 +563,32 @@
     }
 
     // ─── NOISE SUPPRESSION (Jitsi RNNoise) ──────────────────────────────────
-    async function initNoiseSuppression() {
+   async function initNoiseSuppression() {
   try {
     window.__audioCtx = new AudioContext({ sampleRate: 44100 });
     await window.__audioCtx.audioWorklet.addModule('./rnnoise-processor.js');
+
+    // Загружаем WASM‑модуль через rnnoise.js
+    const createRNNWasmModule = (await import('./rnnoise.js')).default;
+    const wasm = await createRNNWasmModule();
+
     const source = window.__audioCtx.createMediaStreamSource(localStream);
     const rnnode = new AudioWorkletNode(window.__audioCtx, 'rnnoise-processor');
+
+    // Передаём WASM‑модуль в AudioWorklet
+    rnnode.port.postMessage({ type: 'wasm', wasm: wasm });
+
     const dest = window.__audioCtx.createMediaStreamDestination();
     source.connect(rnnode);
     rnnode.connect(dest);
     noiseSuppressor = rnnode;
     console.log('✅ RNNoise active');
     return dest.stream;
-   } catch(e) {
+  } catch(e) {
     console.warn('⚠️ RNNoise не загрузился, fallback', e);
     return localStream;
-    }
-   }
+  }
+}
 
     // ─── CALL ─────────────────────────────────────────────────────────────────
     window.joinCall = async function() {
