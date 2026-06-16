@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>виталик</title>
   <style>
-    /* ── все ваши стили без изменений (сохранены полностью) ── */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root { --bg: #0e0e10; --surface: #18181b; --surface2: #222228; --border: #2e2e35; --text: #efeff1; --muted: #848494; --accent: #7c6af7; --accent-hover: #9b8fff; --red: #e04040; --red-hover: #f05050; --green: #3dba6d; --yellow: #e6a817; --radius: 12px; }
     body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; user-select: none; }
@@ -204,7 +203,7 @@
       <div class="status-bar" id="statusBar">
         <div class="dot" id="dot"></div>
         <span class="status-text" id="statusText">Войди в аккаунт чтобы начать</span>
-        <span class="ns-status" id="nsStatus"><span class="dot-ns"></span> Denoise</span>
+        <span class="ns-status" id="nsStatus"><span class="dot-ns"></span> DTLN</span>
       </div>
 
       <div class="avatars" id="avatars">
@@ -249,7 +248,7 @@
         <p>Для работы нужен бесплатный Firebase Realtime Database. Создай проект и вставь конфиг в функцию <code>getFirebaseConfig()</code>:</p>
         <div class="code-block"><span class="cfg-key">apiKey</span>: <span class="cfg-val">"AIza..."</span>,<span class="cfg-key">authDomain</span>: <span class="cfg-val">"..."</span>,...</div>
       </div>
-      <footer>WebRTC · Denoise (WorkAdventure) · p2p</footer>
+      <footer>WebRTC · DTLN (Datadog) · p2p</footer>
     </div>
   </div>
 
@@ -276,22 +275,14 @@
     const STUN_SERVERS = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] };
 
     // ─── STATE ────────────────────────────────────────────────────────────────
-    let db = null,
-      pc = null,
-      localStream = null,
-      remoteStream = null;
-    let roomRef = null,
-      isInitiator = false;
-    let micMuted = false,
-      deafened = false,
-      inCall = false,
-      hasLeft = false;
+    let db = null, pc = null, localStream = null, remoteStream = null;
+    let roomRef = null, isInitiator = false;
+    let micMuted = false, deafened = false, inCall = false, hasLeft = false;
     let currentUser = null;
 
-    // ─── Denoise (WorkAdventure) ────────────────────────────────────────────
-    let _noiseSuppressor = null;
+    // ─── DTLN (Datadog) ──────────────────────────────────────────────────────
+    let _dtln = null; // будет хранить экземпляр DTLN
     let _audioContext = null;
-    let _processedStream = null;
 
     // ─── DOM ──────────────────────────────────────────────────────────────────
     const $joinBtn = document.getElementById('joinBtn');
@@ -334,6 +325,9 @@
         await initFirebase();
       }
 
+      // Загружаем DTLN (библиотека Datadog)
+      await loadDTLN();
+
       const saved = sessionStorage.getItem('voiceUser');
       if (saved) {
         try { currentUser = JSON.parse(saved); onLoggedIn(); } catch { showLogin(); }
@@ -347,13 +341,71 @@
       return cfg.databaseURL && cfg.databaseURL.length > 5;
     }
 
-    function updateDenoiseStatus(active) {
+    function updateDTLNStatus(active) {
       if (active) {
         $nsStatus.classList.add('active');
         $nsStatus.querySelector('.dot-ns').style.background = 'var(--green)';
       } else {
         $nsStatus.classList.remove('active');
         $nsStatus.querySelector('.dot-ns').style.background = 'var(--muted)';
+      }
+    }
+
+    // ─── ЗАГРУЗКА DTLN ──────────────────────────────────────────────────────
+    async function loadDTLN() {
+      try {
+        // Пакет Datadog: @datadog/dtl-rs
+        const module = await import('https://cdn.jsdelivr.net/npm/@datadog/dtl-rs@latest/dist/index.js');
+        // Ожидаем, что экспортируется класс DTLN или фабрика
+        // Документация: https://github.com/DataDog/dtln-rs
+        // В демо используется: new DTLN(audioContext)
+        if (module.DTLN) {
+          _dtln = module.DTLN;
+          console.log('✅ DTLN загружен');
+          updateDTLNStatus(false); // пока не активен
+        } else if (module.default && module.default.DTLN) {
+          _dtln = module.default.DTLN;
+          console.log('✅ DTLN загружен (default)');
+        } else {
+          throw new Error('Не найден класс DTLN');
+        }
+      } catch (e) {
+        console.warn('⚠️ DTLN не загрузился:', e);
+        _dtln = null;
+        updateDTLNStatus(false);
+      }
+    }
+
+    // ─── ШУМОПОДАВЛЕНИЕ ЧЕРЕЗ DTLN ──────────────────────────────────────────
+    async function initNoiseSuppression() {
+      if (!_dtln) {
+        console.warn('DTLN не доступен, используем оригинальный поток');
+        return localStream;
+      }
+
+      try {
+        // Создаём AudioContext, если ещё нет
+        if (!_audioContext) {
+          _audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          if (_audioContext.state === 'suspended') {
+            await _audioContext.resume();
+          }
+        }
+
+        // Создаём экземпляр DTLN
+        const dtlnInstance = new _dtln(_audioContext);
+        // Загружаем WASM-модель (если нужно)
+        await dtlnInstance.ready;
+
+        // Обрабатываем поток
+        const processedStream = await dtlnInstance.processStream(localStream);
+        updateDTLNStatus(true);
+        console.log('✅ DTLN активен');
+        return processedStream;
+      } catch (e) {
+        console.warn('⚠️ DTLN не запустился, используем оригинальный поток:', e);
+        updateDTLNStatus(false);
+        return localStream;
       }
     }
 
@@ -565,40 +617,6 @@
       window._fb = { ref, set, get, onValue, off, push, remove, onDisconnect };
     }
 
-    // ─── ШУМОПОДАВЛЕНИЕ ЧЕРЕЗ @workadventure/noise-suppression ─────────────
-    async function initNoiseSuppression() {
-      try {
-        // Динамический импорт
-        const { createNoiseSuppressor } = await import(
-          'https://cdn.jsdelivr.net/npm/@workadventure/noise-suppression@latest/dist/index.js'
-        );
-
-        // Создаём AudioContext
-        if (!_audioContext) {
-          _audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          if (_audioContext.state === 'suspended') {
-            await _audioContext.resume();
-          }
-        }
-
-        // Создаём suppressor. API: createNoiseSuppressor(audioContext, options)
-        _noiseSuppressor = await createNoiseSuppressor(_audioContext, {
-          // можно передать опции, если нужно
-        });
-
-        // Получаем обработанный поток
-        const processed = await _noiseSuppressor.processStream(localStream);
-        _processedStream = processed;
-        updateDenoiseStatus(true);
-        console.log('✅ NoiseSuppressor (WorkAdventure) активен');
-        return processed;
-      } catch (e) {
-        console.warn('⚠️ NoiseSuppressor не запустился, используем оригинальный поток:', e);
-        updateDenoiseStatus(false);
-        return localStream;
-      }
-    }
-
     // ─── CALL ─────────────────────────────────────────────────────────────────
     window.joinCall = async function() {
       if (!currentUser) return;
@@ -628,7 +646,7 @@
         return;
       }
 
-      // Запускаем шумоподавление
+      // Запускаем DTLN
       window.__processedStream = await initNoiseSuppression();
 
       hasLeft = false;
@@ -774,15 +792,9 @@
       inCall = false;
       isInitiator = false;
 
-      // Очистка NoiseSuppressor
-      if (_noiseSuppressor) {
-        try {
-          await _noiseSuppressor.dispose();
-          console.log('🧹 NoiseSuppressor очищен');
-        } catch (e) { console.warn('Ошибка при очистке NoiseSuppressor:', e); }
-        _noiseSuppressor = null;
-        _processedStream = null;
-        updateDenoiseStatus(false);
+      // Очистка DTLN (если есть метод dispose)
+      if (_dtln && typeof _dtln.dispose === 'function') {
+        try { await _dtln.dispose(); } catch(e) {}
       }
       if (_audioContext) {
         try { await _audioContext.close(); } catch (e) {}
