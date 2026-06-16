@@ -169,6 +169,7 @@ input::placeholder { color: var(--muted); opacity: 0.7; }
   width: 100%; padding: 14px; border-radius: var(--radius); border: none;
   font-size: 15px; font-weight: 600; cursor: pointer;
   transition: background 0.15s, transform 0.1s; font-family: inherit;
+  max-width: 340px;
 }
 .btn-join:active { transform: scale(0.98); }
 .btn-join.primary { background: var(--accent); color: #fff; }
@@ -359,7 +360,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding-botto
       <button onclick="toggleRoomHint()" style="width:18px;height:18px;border-radius:50%;border:1px solid var(--muted);background:none;color:var(--muted);font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;flex-shrink:0" id="hintBtn">?</button>
     </div>
     <div id="roomHint" style="display:none;font-size:12px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px;line-height:1.5">
-      Введи одинаковое название с человеком, чтобы попасть в одну комнату
+      Введи одинаковое название с человеком, чтобы попасть в одну комнату 
+      (Пробелы = "_")
     </div>
     <div class="room-input-row">
       <input type="text" id="roomInput" placeholder="название комнаты" value="ее звонок" />
