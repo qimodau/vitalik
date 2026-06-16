@@ -1,12 +1,6 @@
 {
   "headers": [
     {
-      "source": "/rnnoise.wasm",
-      "headers": [
-        { "key": "Content-Type", "value": "application/wasm" }
-      ]
-    },
-    {
       "source": "/(.*).mjs",
       "headers": [
         { "key": "Content-Type", "value": "application/javascript" }
