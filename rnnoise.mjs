@@ -240,7 +240,7 @@ function isDataURI(filename) {
 var wasmBinaryFile;
 
 // 🔧 Исправленная строка – абсолютный путь к rnnoise.wasm
-wasmBinaryFile = new URL('./rnnoise.wasm', import.meta.url).href;
+wasmBinaryFile = import.meta.url.replace(/rnnoise\.mjs$/, 'rnnoise.wasm');
 
 if (!isDataURI(wasmBinaryFile)) {
  wasmBinaryFile = locateFile(wasmBinaryFile);
