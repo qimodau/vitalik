@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>виталик</title>
   <style>
-    /* ── все ваши стили без изменений ── */
+    /* ── все ваши стили без изменений (сохранены полностью) ── */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root { --bg: #0e0e10; --surface: #18181b; --surface2: #222228; --border: #2e2e35; --text: #efeff1; --muted: #848494; --accent: #7c6af7; --accent-hover: #9b8fff; --red: #e04040; --red-hover: #f05050; --green: #3dba6d; --yellow: #e6a817; --radius: 12px; }
     body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; user-select: none; }
@@ -204,7 +204,7 @@
       <div class="status-bar" id="statusBar">
         <div class="dot" id="dot"></div>
         <span class="status-text" id="statusText">Войди в аккаунт чтобы начать</span>
-        <span class="ns-status" id="nsStatus"><span class="dot-ns"></span> RNNoise</span>
+        <span class="ns-status" id="nsStatus"><span class="dot-ns"></span> Denoise</span>
       </div>
 
       <div class="avatars" id="avatars">
@@ -249,7 +249,7 @@
         <p>Для работы нужен бесплатный Firebase Realtime Database. Создай проект и вставь конфиг в функцию <code>getFirebaseConfig()</code>:</p>
         <div class="code-block"><span class="cfg-key">apiKey</span>: <span class="cfg-val">"AIza..."</span>,<span class="cfg-key">authDomain</span>: <span class="cfg-val">"..."</span>,...</div>
       </div>
-      <footer>WebRTC · RNNoise (WASM) · p2p</footer>
+      <footer>WebRTC · Denoise (WorkAdventure) · p2p</footer>
     </div>
   </div>
 
@@ -288,9 +288,10 @@
       hasLeft = false;
     let currentUser = null;
 
-    // ─── RNNoise (timephy) ──────────────────────────────────────────────────
-    let _rnnoiseProcessor = null;
+    // ─── Denoise (WorkAdventure) ────────────────────────────────────────────
+    let _noiseSuppressor = null;
     let _audioContext = null;
+    let _processedStream = null;
 
     // ─── DOM ──────────────────────────────────────────────────────────────────
     const $joinBtn = document.getElementById('joinBtn');
@@ -346,7 +347,7 @@
       return cfg.databaseURL && cfg.databaseURL.length > 5;
     }
 
-    function updateRNNoiseStatus(active) {
+    function updateDenoiseStatus(active) {
       if (active) {
         $nsStatus.classList.add('active');
         $nsStatus.querySelector('.dot-ns').style.background = 'var(--green)';
@@ -564,15 +565,15 @@
       window._fb = { ref, set, get, onValue, off, push, remove, onDisconnect };
     }
 
-    // ─── ШУМОПОДАВЛЕНИЕ ЧЕРЕЗ @timephy/rnnoise-wasm ──────────────────────
+    // ─── ШУМОПОДАВЛЕНИЕ ЧЕРЕЗ @workadventure/noise-suppression ─────────────
     async function initNoiseSuppression() {
       try {
-        // Динамический импорт с CDN
-        const { RNNoiseProcessor } = await import(
-          'https://cdn.jsdelivr.net/npm/@timephy/rnnoise-wasm@latest/dist/index.js'
+        // Динамический импорт
+        const { createNoiseSuppressor } = await import(
+          'https://cdn.jsdelivr.net/npm/@workadventure/noise-suppression@latest/dist/index.js'
         );
 
-        // Создаём AudioContext, если ещё не создан
+        // Создаём AudioContext
         if (!_audioContext) {
           _audioContext = new (window.AudioContext || window.webkitAudioContext)();
           if (_audioContext.state === 'suspended') {
@@ -580,19 +581,20 @@
           }
         }
 
-        // Создаём процессор
-        _rnnoiseProcessor = new RNNoiseProcessor(_audioContext);
-        // Загружаем WASM-модель
-        await _rnnoiseProcessor.load();
+        // Создаём suppressor. API: createNoiseSuppressor(audioContext, options)
+        _noiseSuppressor = await createNoiseSuppressor(_audioContext, {
+          // можно передать опции, если нужно
+        });
 
-        // Обрабатываем поток
-        const processedStream = await _rnnoiseProcessor.processStream(localStream);
-        updateRNNoiseStatus(true);
-        console.log('✅ RNNoiseProcessor (timephy) активен');
-        return processedStream;
+        // Получаем обработанный поток
+        const processed = await _noiseSuppressor.processStream(localStream);
+        _processedStream = processed;
+        updateDenoiseStatus(true);
+        console.log('✅ NoiseSuppressor (WorkAdventure) активен');
+        return processed;
       } catch (e) {
-        console.warn('⚠️ RNNoiseProcessor не запустился, используем оригинальный поток:', e);
-        updateRNNoiseStatus(false);
+        console.warn('⚠️ NoiseSuppressor не запустился, используем оригинальный поток:', e);
+        updateDenoiseStatus(false);
         return localStream;
       }
     }
@@ -772,14 +774,15 @@
       inCall = false;
       isInitiator = false;
 
-      // Очистка RNNoise
-      if (_rnnoiseProcessor) {
+      // Очистка NoiseSuppressor
+      if (_noiseSuppressor) {
         try {
-          await _rnnoiseProcessor.dispose();
-          console.log('🧹 RNNoiseProcessor очищен');
-        } catch (e) { console.warn('Ошибка при очистке RNNoise:', e); }
-        _rnnoiseProcessor = null;
-        updateRNNoiseStatus(false);
+          await _noiseSuppressor.dispose();
+          console.log('🧹 NoiseSuppressor очищен');
+        } catch (e) { console.warn('Ошибка при очистке NoiseSuppressor:', e); }
+        _noiseSuppressor = null;
+        _processedStream = null;
+        updateDenoiseStatus(false);
       }
       if (_audioContext) {
         try { await _audioContext.close(); } catch (e) {}
