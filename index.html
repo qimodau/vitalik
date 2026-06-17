@@ -234,15 +234,22 @@
 
     // ─── ICE: STUN + TURN ───────────────────────────────────────────────────
     const ICE_SERVERS = {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
-        { urls: 'turn:openrelay.metered.ca:80',                  username: 'openrelayproject', credential: 'openrelayproject' },
-        { urls: 'turn:openrelay.metered.ca:80?transport=tcp',    username: 'openrelayproject', credential: 'openrelayproject' },
-        { urls: 'turns:openrelay.metered.ca:443?transport=tcp',  username: 'openrelayproject', credential: 'openrelayproject' },
-      ]
-    };
+  iceServers: [
+    // Оставляем только один основной STUN от Google
+    { urls: 'stun:stun.l.google.com:19302' },
+    
+    // Объединяем все адреса TURN от Metered в один объект
+    { 
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:80?transport=tcp',
+        'turns:openrelay.metered.ca:443?transport=tcp'
+      ],
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
+  ]
+};
 
     // ─── STATE ────────────────────────────────────────────────────────────────
     let db = null, pc = null, localStream = null, remoteStream = null;
