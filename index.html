@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>виталик</title>
   <style>
-    /* ===== ПОЛНЫЙ CSS (твой оригинал без изменений) ===== */
+    /* ===== ТВОЙ CSS БЕЗ ИЗМЕНЕНИЙ ===== */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
       --bg: #0e0e10; --surface: #18181b; --surface2: #222228;
@@ -263,9 +263,6 @@
     let micMuted = false, deafened = false, inCall = false, hasLeft = false;
     let currentUser = null;
 
-    // Флаг автоматического mute при тишине (всегда активен)
-    let autoMutedBySilence = false;
-
     // DOM
     const $joinBtn      = document.getElementById('joinBtn');
     const $controls     = document.getElementById('controls');
@@ -496,17 +493,11 @@
       setStatus('waiting', 'Подключаемся...');
       $joinBtn.disabled = true;
 
-      // Сбрасываем все состояния mute перед звонком
-      micMuted = false;
-      autoMutedBySilence = false;
-
       const audioEl = document.getElementById('remoteAudio');
       if (audioEl) { audioEl.load(); audioEl.play().catch(() => {}); }
 
       try {
         localStream = await getAudioStream();
-        // Применяем начальное состояние (микрофон включен)
-        applyMicState();
       } catch(e) {
         console.warn('Ошибка доступа к микрофону:', e);
         showError('Нет доступа к микрофону. Проверь разрешение для микрофона в браузере и что сайт открыт по HTTPS.');
@@ -670,27 +661,11 @@
       $joinBtn.textContent = 'Войти обратно'; $joinBtn.className = 'btn-join secondary';
     };
 
-    // ─── ПРИМЕНЕНИЕ СОСТОЯНИЯ MUTE (с учётом обоих флагов) ──────────────────
-    function applyMicState() {
-      if (!localStream) return;
-      const shouldMute = micMuted || autoMutedBySilence;
-      localStream.getAudioTracks().forEach(t => { t.enabled = !shouldMute; });
-    }
-
-    // ─── РУЧНОЕ УПРАВЛЕНИЕ МИКРОФОНОМ (кнопка) ─────────────────────────────
+    // ─── РУЧНОЕ УПРАВЛЕНИЕ МИКРОФОНОМ (без авто-mute) ────────────────────────
     window.toggleMic = function() {
       if (!localStream) return;
-      const currentlyMuted = micMuted || autoMutedBySilence;
-      if (currentlyMuted) {
-        // Включаем микрофон и сбрасываем все флаги mute
-        micMuted = false;
-        autoMutedBySilence = false;
-      } else {
-        // Выключаем микрофон вручную, авто-mute тоже отключаем
-        micMuted = true;
-        autoMutedBySilence = false;
-      }
-      applyMicState();
+      micMuted = !micMuted;
+      localStream.getAudioTracks().forEach(t => { t.enabled = !micMuted; });
       updateMicUI();
       updateBadgesUI();
       syncMyStatus();
@@ -709,8 +684,7 @@
     const ICON_MIC_OFF_SM = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
 
     function updateMicUI() {
-      const isMuted = micMuted || autoMutedBySilence;
-      if (isMuted) {
+      if (micMuted) {
         $micIcon.innerHTML = ICON_MIC_OFF;
         $micBtn.classList.add('active');
       } else {
@@ -728,7 +702,7 @@
       const $myBadges = document.getElementById('myBadges');
       if (!$myBadges) return;
       let html = '';
-      if (micMuted || autoMutedBySilence) html += `<div class="badge">${ICON_MIC_OFF_SM}</div>`;
+      if (micMuted) html += `<div class="badge">${ICON_MIC_OFF_SM}</div>`;
       if (deafened) html += '<div class="badge">🔇</div>';
       $myBadges.innerHTML = html;
     }
@@ -736,8 +710,7 @@
     function syncMyStatus() {
       if (!db || !roomRef || !inCall) return;
       const roleKey = isInitiator ? 'caller' : 'callee';
-      const effectiveMuted = micMuted || autoMutedBySilence;
-      window._fb.set(window._fb.ref(db, `rooms/${$roomInput.value}/${roleKey}MicMuted`), effectiveMuted);
+      window._fb.set(window._fb.ref(db, `rooms/${$roomInput.value}/${roleKey}MicMuted`), micMuted);
       window._fb.set(window._fb.ref(db, `rooms/${$roomInput.value}/${roleKey}Deafened`), deafened);
     }
 
@@ -765,12 +738,9 @@
       } catch(e) {}
     })();
 
-    // ─── SPEAKING DETECTION + AUTO MUTE (всегда активен) ─────────────────────
+    // ─── SPEAKING DETECTION (только анимация аватара, без авто-mute) ─────────
     let _audioCtxVis = null, _analyserLocal = null, _analyserRemote = null;
     let _spkIntLocal = null, _spkIntRemote = null;
-    let _autoSilenceTimer = null;
-    const AUTO_SILENCE_THRESHOLD = 10;   // порог громкости (0-255), можно подстроить под телевизор
-    const AUTO_SILENCE_DELAY_MS = 800;  // задержка перед отключением при тишине
 
     function startSpeakingDetection() {
       try {
@@ -787,46 +757,9 @@
             if (!_analyserLocal) return;
             _analyserLocal.getByteFrequencyData(data);
             const vol = data.reduce((a,b)=>a+b,0) / data.length;
-            const isMuted = micMuted || autoMutedBySilence;
-            const isSpeaking = vol > AUTO_SILENCE_THRESHOLD && !isMuted;
-            document.getElementById('myAvatar').classList.toggle('speaking', isSpeaking);
-
-            // Автоматическое управление mute (всегда работает)
-            if (localStream) {
-              const actuallySpeaking = vol > AUTO_SILENCE_THRESHOLD;
-              if (actuallySpeaking) {
-                // Есть звук – если микрофон был выключен автоматикой, включаем
-                if (autoMutedBySilence) {
-                  autoMutedBySilence = false;
-                  applyMicState();
-                  updateMicUI();
-                  updateBadgesUI();
-                  syncMyStatus();
-                }
-                if (_autoSilenceTimer) { clearTimeout(_autoSilenceTimer); _autoSilenceTimer = null; }
-              } else {
-                // Тишина – если микрофон не заблокирован вручную, запускаем таймер
-                if (!_autoSilenceTimer && !micMuted && !autoMutedBySilence) {
-                  _autoSilenceTimer = setTimeout(() => {
-                    if (!_analyserLocal) return;
-                    const currentData = new Uint8Array(_analyserLocal.frequencyBinCount);
-                    _analyserLocal.getByteFrequencyData(currentData);
-                    const currentVol = currentData.reduce((a,b)=>a+b,0) / currentData.length;
-                    if (currentVol <= AUTO_SILENCE_THRESHOLD && !micMuted && !autoMutedBySilence) {
-                      autoMutedBySilence = true;
-                      applyMicState();
-                      updateMicUI();
-                      updateBadgesUI();
-                      syncMyStatus();
-                    }
-                    _autoSilenceTimer = null;
-                  }, AUTO_SILENCE_DELAY_MS);
-                }
-              }
-            }
+            document.getElementById('myAvatar').classList.toggle('speaking', vol > 8 && !micMuted);
           }, 80);
         }
-
         if ($remoteAudio.srcObject) {
           const src2 = _audioCtxVis.createMediaStreamSource($remoteAudio.srcObject);
           _analyserRemote = _audioCtxVis.createAnalyser(); 
@@ -846,10 +779,8 @@
     function stopSpeakingDetection() {
       clearInterval(_spkIntLocal); clearInterval(_spkIntRemote);
       _spkIntLocal = null; _spkIntRemote = null;
-      if (_autoSilenceTimer) { clearTimeout(_autoSilenceTimer); _autoSilenceTimer = null; }
       if (_audioCtxVis) { try { _audioCtxVis.close(); } catch(e){} _audioCtxVis = null; }
       _analyserLocal = null; _analyserRemote = null;
-      autoMutedBySilence = false;
       document.getElementById('myAvatar').classList.remove('speaking');
       document.getElementById('peerAvatar').classList.remove('speaking');
     }
