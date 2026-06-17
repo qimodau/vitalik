@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>виталик</title>
   <style>
-    /* ===== ТВОЙ CSS ПОЛНОСТЬЮ (без изменений) ===== */
+    /* ─── Твой CSS (без изменений) ─── */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
       --bg: #0e0e10; --surface: #18181b; --surface2: #222228;
@@ -103,9 +103,6 @@
     .empty-list { font-size: 13px; color: var(--muted); text-align: center; padding: 16px 0; }
     footer { color: var(--muted); font-size: 12px; text-align: center; padding-bottom: 8px; }
   </style>
-  <!-- Загружаем Firebase compat скрипты (без модулей) -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 </head>
 <body>
   <div class="topbar"><div></div><div class="topbar-right" id="topbarRight"></div></div>
@@ -225,607 +222,595 @@
 
   <audio id="remoteAudio" autoplay playsinline></audio>
 
-  <!-- Основной скрипт (обычный, не модуль) -->
-  <script>
-    (function() {
-      // ─── FIREBASE CONFIG ────────────────────────────────────────────────────
-      function getFirebaseConfig() {
-        return {
-          apiKey: "AIzaSyDQpYp4679D5f4K30xSL46bSFXZq3XK_Ks",
-          authDomain: "vitalik-fcd7b.firebaseapp.com",
-          databaseURL: "https://vitalik-fcd7b-default-rtdb.firebaseio.com",
-          projectId: "vitalik-fcd7b",
-          storageBucket: "vitalik-fcd7b.firebasestorage.app",
-          messagingSenderId: "658204798197",
-          appId: "1:658204798197:web:1ff00c67d17a4e52b7e9bc"
-        };
-      }
+  <!-- Статический импорт Firebase модулей (без CORS-ошибок на GitHub Pages) -->
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+    import { getDatabase, ref, set, get, onValue, off, push, remove, onDisconnect } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
 
-      const ADMIN_NAME      = 'qamodik';
-      const ADMIN_PASS_HASH = '4d6fa21b90fd93c7043ada4c380872982ed81009bd8f93a4aced7db00600014b';
+    // ─── FIREBASE CONFIG ──────────────────────────────────────────────────────
+    const firebaseConfig = {
+      apiKey: "AIzaSyDQpYp4679D5f4K30xSL46bSFXZq3XK_Ks",
+      authDomain: "vitalik-fcd7b.firebaseapp.com",
+      databaseURL: "https://vitalik-fcd7b-default-rtdb.firebaseio.com",
+      projectId: "vitalik-fcd7b",
+      storageBucket: "vitalik-fcd7b.firebasestorage.app",
+      messagingSenderId: "658204798197",
+      appId: "1:658204798197:web:1ff00c67d17a4e52b7e9bc"
+    };
 
-      // ─── ICE ─────────────────────────────────────────────────────────────────
-      const ICE_SERVERS = {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { 
-            urls: [
-              'turn:openrelay.metered.ca:80',
-              'turn:openrelay.metered.ca:80?transport=tcp',
-              'turns:openrelay.metered.ca:443?transport=tcp'
-            ],
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
-          }
-        ]
-      };
+    const ADMIN_NAME      = 'qamodik';
+    const ADMIN_PASS_HASH = '4d6fa21b90fd93c7043ada4c380872982ed81009bd8f93a4aced7db00600014b';
 
-      // ─── STATE ──────────────────────────────────────────────────────────────
-      let db = null, pc = null, localStream = null, remoteStream = null;
-      let roomRef = null, isInitiator = false;
-      let micMuted = false, deafened = false, inCall = false, hasLeft = false;
-      let currentUser = null;
-
-      // DOM
-      const $ = (id) => document.getElementById(id);
-      const $joinBtn      = $('joinBtn');
-      const $controls     = $('controls');
-      const $statusText   = $('statusText');
-      const $dot          = $('dot');
-      const $errorBox     = $('errorBox');
-      const $avatars      = $('avatars');
-      const $micBtn       = $('micBtn');
-      const $micIcon      = $('micIcon');
-      const $micLabel     = $('micLabel');
-      const $deafBtn      = $('deafBtn');
-      const $deafIcon     = $('deafIcon');
-      const $deafLabel    = $('deafLabel');
-      const $remoteAudio  = $('remoteAudio');
-      const $myAvatar     = $('myAvatar');
-      const $peerAvatar   = $('peerAvatar');
-      const $peerName     = $('peerName');
-      const $roomInput    = $('roomInput');
-      const $topbarRight  = $('topbarRight');
-      const $loginOverlay       = $('loginOverlay');
-      const $managerOverlay     = $('managerOverlay');
-      const $avatarPanelOverlay = $('avatarPanelOverlay');
-
-      async function sha256(str) {
-        const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-        return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
-      }
-
-      // ─── ИНИЦИАЛИЗАЦИЯ FIREBASE ────────────────────────────────────────────
-      function initFirebase() {
-        firebase.initializeApp(getFirebaseConfig());
-        const db = firebase.database();
-        // Создаём объект-помощник, как в изначальном коде
-        window._fb = {
-          ref: (dummy, path) => db.ref(path),
-          set: (ref, data) => ref.set(data),
-          get: (ref) => ref.get(),
-          onValue: (ref, callback) => ref.on('value', callback),
-          off: (ref) => ref.off(),
-          push: (ref, data) => ref.push(data),
-          remove: (ref) => ref.remove(),
-          onDisconnect: (ref) => ref.onDisconnect()
-        };
-        return db;
-      }
-
-      // Адаптивный запрос микрофона
-      async function getAudioStream() {
-        const attempts = [
-          { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false },
-          { audio: { echoCancellation: true, noiseSuppression: true }, video: false },
-          { audio: { echoCancellation: true }, video: false },
-          { audio: true, video: false }
-        ];
-        for (const constraints of attempts) {
-          try { return await navigator.mediaDevices.getUserMedia(constraints); } catch (e) { continue; }
+    // ─── ICE: STUN + TURN ───────────────────────────────────────────────────
+    const ICE_SERVERS = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { 
+          urls: [
+            'turn:openrelay.metered.ca:80',
+            'turn:openrelay.metered.ca:80?transport=tcp',
+            'turns:openrelay.metered.ca:443?transport=tcp'
+          ],
+          username: 'openrelayproject',
+          credential: 'openrelayproject'
         }
-        throw new Error('Микрофон недоступен');
-      }
+      ]
+    };
 
-      // ─── ЗВОНОК ──────────────────────────────────────────────────────────────
-      window.joinCall = async function() {
-        hasLeft = false;
-        if (!currentUser || !db) { showError('Firebase инициализируется, подожди секунду.'); return; }
-        clearError();
-        const roomName = $roomInput.value.trim().replace(/\s+/g,'_').replace(/[^\w\u0400-\u04FF-]/g,'') || 'комната';
-        $roomInput.value = roomName;
-        setStatus('waiting', 'Подключаемся...');
-        $joinBtn.disabled = true;
+    // ─── STATE ────────────────────────────────────────────────────────────────
+    let db = null, pc = null, localStream = null, remoteStream = null;
+    let roomRef = null, isInitiator = false;
+    let micMuted = false, deafened = false, inCall = false, hasLeft = false;
+    let currentUser = null;
 
-        // Пробуждение аудио
-        $remoteAudio.load();
-        $remoteAudio.play().catch(() => {});
+    // DOM
+    const $joinBtn      = document.getElementById('joinBtn');
+    const $controls     = document.getElementById('controls');
+    const $statusText   = document.getElementById('statusText');
+    const $dot          = document.getElementById('dot');
+    const $errorBox     = document.getElementById('errorBox');
+    const $avatars      = document.getElementById('avatars');
+    const $micBtn       = document.getElementById('micBtn');
+    const $micIcon      = document.getElementById('micIcon');
+    const $micLabel     = document.getElementById('micLabel');
+    const $deafBtn      = document.getElementById('deafBtn');
+    const $deafIcon     = document.getElementById('deafIcon');
+    const $deafLabel    = document.getElementById('deafLabel');
+    const $remoteAudio  = document.getElementById('remoteAudio');
+    const $myAvatar     = document.getElementById('myAvatar');
+    const $peerAvatar   = document.getElementById('peerAvatar');
+    const $peerName     = document.getElementById('peerName');
+    const $roomInput    = document.getElementById('roomInput');
+    const $topbarRight  = document.getElementById('topbarRight');
+    const $loginOverlay       = document.getElementById('loginOverlay');
+    const $managerOverlay     = document.getElementById('managerOverlay');
+    const $avatarPanelOverlay = document.getElementById('avatarPanelOverlay');
 
+    async function sha256(str) {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+    }
+
+    window.addEventListener('load', async () => {
+      const urlRoom = new URLSearchParams(location.search).get('room');
+      if (urlRoom) $roomInput.value = urlRoom;
+      // Инициализируем Firebase
+      const app = initializeApp(firebaseConfig);
+      db = getDatabase(app);
+      const saved = localStorage.getItem('voiceUser');
+      if (saved) { try { currentUser = JSON.parse(saved); onLoggedIn(); } catch { showLogin(); } }
+      else showLogin();
+    });
+
+    function showLogin() {
+      $loginOverlay.classList.add('open');
+      setTimeout(() => document.getElementById('loginName').focus(), 100);
+    }
+
+    async function onLoggedIn() {
+      $loginOverlay.classList.remove('open');
+      $joinBtn.style.display = '';
+      $joinBtn.textContent = 'Войти в звонок';
+      $joinBtn.className = 'btn-join primary';
+      setStatus('idle', `Привет, ${currentUser.name}!`);
+      const av = $myAvatar;
+      let savedAvatar = localStorage.getItem(avatarKey());
+      if (!savedAvatar && db && currentUser && !currentUser.isAdmin) {
         try {
-          localStream = await getAudioStream();
-          micMuted = false;
-          localStream.getAudioTracks().forEach(t => { t.enabled = true; });
-        } catch(e) {
-          console.warn(e);
-          let msg = 'Нет доступа к микрофону. ';
-          if (e.name === 'NotAllowedError') msg += 'Разреши доступ в настройках браузера.';
-          else if (e.name === 'NotFoundError') msg += 'Микрофон не найден.';
-          else msg += e.message;
-          showError(msg);
-          $joinBtn.disabled = false;
-          return;
-        }
-
-        hasLeft = false; inCall = false; isInitiator = false; pc = null;
-        updateBadgesUI();
-        startWebRTC(roomName);
-      };
-
-      let _signalingBusy = false, _addedCandidates = new Set();
-
-      async function setPeerNameAndAvatar(name) {
-        if (!name || name === 'Собеседник') return;
-        $peerName.textContent = name;
-        const av = $peerAvatar;
-        let avatarUrl = null;
-        if (db && name !== ADMIN_NAME) {
-          try {
-            const snap = await window._fb.get(window._fb.ref(db, `accounts/${name}/avatar`));
-            if (snap.exists()) avatarUrl = snap.val();
-          } catch(e) {}
-        }
-        av.innerHTML = avatarUrl
-          ? `<img src="${avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%" />`
-          : `<span id="peerAvatarText">${name.slice(0,2).toUpperCase()}</span>`;
+          const snap = await get(ref(db, `accounts/${currentUser.name}/avatar`));
+          if (snap.exists()) { savedAvatar = snap.val(); localStorage.setItem(avatarKey(), savedAvatar); }
+        } catch(e) {}
       }
+      if (savedAvatar) av.innerHTML = `<img src="${savedAvatar}" /><div class="avatar-upload-hint">📷</div>`;
+      else av.innerHTML = `<span id="myAvatarText">${currentUser.name.slice(0,2).toUpperCase()}</span>`;
+      av.onclick = () => document.getElementById('avatarInput').click();
+      renderTopbar();
+    }
 
-      async function startWebRTC(roomName) {
-        roomRef = window._fb.ref(db, `rooms/${roomName}`);
-        _signalingBusy = false;
-        _addedCandidates = new Set();
+    function getTopbarAvatarHtml() {
+      const saved = localStorage.getItem(avatarKey());
+      if (saved) return `<div style="width:24px;height:24px;border-radius:50%;overflow:hidden;flex-shrink:0"><img src="${saved}" style="width:100%;height:100%;object-fit:cover"/></div>`;
+      return `<div class="user-avatar-sm">${currentUser.name.slice(0,2).toUpperCase()}</div>`;
+    }
 
-        window._fb.onValue(roomRef, async (snap) => {
-          if (hasLeft) return;
-          const data = snap.val();
-          
-          if (data) {
-            const peerName = isInitiator ? data.calleeName : data.callerName;
-            if (peerName && peerName !== $peerName.textContent) {
-              await setPeerNameAndAvatar(peerName);
-            }
-
-            const peerMicMuted = isInitiator ? data.calleeMicMuted : data.callerMicMuted;
-            const peerDeafened = isInitiator ? data.calleeDeafened : data.callerDeafened;
-            const $peerBadges = document.getElementById('peerBadges');
-            if ($peerBadges) {
-              let peerHtml = '';
-              if (peerMicMuted) peerHtml += `<div class="badge">${ICON_MIC_OFF_SM}</div>`;
-              if (peerDeafened) peerHtml += '<div class="badge">🔇</div>';
-              $peerBadges.innerHTML = peerHtml;
-            }
-          }
-
-          if (!data || !data.offer) {
-            if (inCall || _signalingBusy || isInitiator) return;
-            _signalingBusy = true; isInitiator = true;
-            try { await createOffer(roomName); } catch(e) { console.error(e); }
-            _signalingBusy = false;
-          } else if (data.offer && !data.answer && !isInitiator) {
-            if (inCall || _signalingBusy) return;
-            _signalingBusy = true; isInitiator = false;
-            try { await createAnswer(roomName, data.offer); } catch(e) { console.error(e); }
-            _signalingBusy = false;
-          } else if (data.answer && isInitiator && pc && pc.signalingState !== 'stable') {
-            await pc.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(()=>{});
-          }
-          
-          if (data && pc) {
-            const theirKey = isInitiator ? 'iceCallee' : 'iceCaller';
-            if (data[theirKey]) Object.entries(data[theirKey]).forEach(async ([key, c]) => {
-              if (c?.candidate && !_addedCandidates.has(key)) {
-                _addedCandidates.add(key);
-                try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch(e) {}
-              }
-            });
-          }
-        });
+    function renderTopbar() {
+      if (!currentUser) { $topbarRight.innerHTML = ''; return; }
+      const av = getTopbarAvatarHtml();
+      if (currentUser.isAdmin) {
+        $topbarRight.innerHTML = `<div class="user-chip" style="gap:0;background:none;border:none;padding:0">
+          <div style="display:flex;align-items:center;gap:8px;cursor:pointer;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:5px 12px 5px 8px;margin-right:10px" onclick="openAvatarPanel()">${av}<span>${currentUser.name}</span></div>
+          <span class="admin-badge" style="cursor:pointer;padding:5px 12px;border-radius:20px;margin-left:0" onclick="openManager()">admin</span></div>`;
+      } else {
+        $topbarRight.innerHTML = `<div class="user-chip" onclick="openAvatarPanel()">${av}<span>${currentUser.name}</span></div>`;
       }
+    }
 
-      async function createOffer(roomName) {
-        setStatus('waiting', 'Ожидаем собеседника...');
-        pc = buildPC(roomName, true);
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        const rRef = window._fb.ref(db, `rooms/${roomName}`);
-        await window._fb.set(rRef, { 
-          offer: { type: offer.type, sdp: offer.sdp }, 
-          callerName: currentUser.name,
-          callerMicMuted: micMuted,
-          callerDeafened: deafened
-        });
-        window._fb.onDisconnect(rRef).remove();
-      }
-
-      async function createAnswer(roomName, offerData) {
-        pc = buildPC(roomName, false);
-        await pc.setRemoteDescription(new RTCSessionDescription(offerData));
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        
-        await window._fb.set(window._fb.ref(db, `rooms/${roomName}/answer`), { type: answer.type, sdp: answer.sdp });
-        await window._fb.set(window._fb.ref(db, `rooms/${roomName}/calleeName`), currentUser.name);
-        await window._fb.set(window._fb.ref(db, `rooms/${roomName}/calleeMicMuted`), micMuted);
-        await window._fb.set(window._fb.ref(db, `rooms/${roomName}/calleeDeafened`), deafened);
-      }
-
-      function buildPC(roomName, asInitiator) {
-        const connection = new RTCPeerConnection(ICE_SERVERS);
-        localStream.getTracks().forEach(t => connection.addTrack(t, localStream));
-        
-        remoteStream = new MediaStream();
-        $remoteAudio.srcObject = remoteStream;
-        connection.ontrack = (e) => {
-          e.streams[0].getTracks().forEach(t => remoteStream.addTrack(t));
-          if (!inCall) { inCall = true; onConnected(); }
-        };
-        connection.onicecandidate = (e) => {
-          if (e.candidate) {
-            window._fb.push(window._fb.ref(db, `rooms/${roomName}/${asInitiator ? 'iceCaller' : 'iceCallee'}`), {
-              candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex
-            });
-          }
-        };
-        connection.onconnectionstatechange = () => {
-          const s = connection.connectionState;
-          if ((s==='disconnected'||s==='failed'||s==='closed') && inCall && !hasLeft) onPeerLeft();
-        };
-        return connection;
-      }
-
-      function onConnected() {
-        setStatus('connected', 'Соединение установлено');
-        $avatars.classList.add('visible'); $controls.classList.add('visible');
-        $joinBtn.style.display = 'none'; setCallUI(true);
-        syncMyStatus();
-        $remoteAudio.play().catch(() => {});
-        startSpeakingDetection();
-      }
-
-      function onPeerLeft() {
-        setStatus('waiting', 'Собеседник отключился. Ждём...');
-        $avatars.classList.remove('visible');
-        $peerAvatar.innerHTML = '<span id="peerAvatarText">👤</span>';
-        document.getElementById('peerBadges').innerHTML = '';
-        $peerName.textContent = 'Собеседник'; inCall = false;
-        setCallUI(false); stopSpeakingDetection();
-      }
-
-      window.leaveCall = async function() {
-        hasLeft = true; inCall = false; isInitiator = false;
-        if (roomRef) { try { window._fb.off(roomRef); } catch(e){} }
-        roomRef = null;
-        if (pc) { pc.close(); pc = null; }
-        if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream = null; }
-        $remoteAudio.srcObject = null;
-        
-        $controls.classList.remove('visible'); $avatars.classList.remove('visible');
-        document.getElementById('myBadges').innerHTML = '';
-        document.getElementById('peerBadges').innerHTML = '';
-        $peerAvatar.innerHTML = '<span id="peerAvatarText">👤</span>';
-        $peerName.textContent = 'Собеседник';
-        setStatus('idle', 'Ты вышел из звонка'); setCallUI(false); stopSpeakingDetection();
-        micMuted = false; deafened = false; updateMicUI(); updateDeafUI(); updateBadgesUI();
-        $joinBtn.disabled = false; $joinBtn.style.display = '';
-        $joinBtn.textContent = 'Войти обратно'; $joinBtn.className = 'btn-join secondary';
-      };
-
-      // ─── УПРАВЛЕНИЕ МИКРОФОНОМ ──────────────────────────────────────────────
-      window.toggleMic = function() {
-        if (!localStream) return;
-        micMuted = !micMuted;
-        localStream.getAudioTracks().forEach(t => { t.enabled = !micMuted; });
-        updateMicUI();
-        updateBadgesUI();
-        syncMyStatus();
-      };
-
-      window.toggleDeaf = function() { 
-        deafened = !deafened; 
-        $remoteAudio.muted = deafened; 
-        updateDeafUI(); 
-        updateBadgesUI();
-        syncMyStatus();
-      };
-
-      const ICON_MIC_ON  = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
-      const ICON_MIC_OFF = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
-      const ICON_MIC_OFF_SM = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
-
-      function updateMicUI() {
-        if (micMuted) {
-          $micIcon.innerHTML = ICON_MIC_OFF;
-          $micBtn.classList.add('active');
-        } else {
-          $micIcon.innerHTML = ICON_MIC_ON;
-          $micBtn.classList.remove('active');
-        }
-      }
-
-      function updateDeafUI() {
-        if (deafened) { $deafIcon.textContent = '🔇'; $deafLabel.textContent = 'Звук'; $deafBtn.classList.add('active'); }
-        else          { $deafIcon.textContent = '🔊'; $deafLabel.textContent = 'Звук'; $deafBtn.classList.remove('active'); }
-      }
-
-      function updateBadgesUI() {
-        const $myBadges = document.getElementById('myBadges');
-        if (!$myBadges) return;
-        let html = '';
-        if (micMuted) html += `<div class="badge">${ICON_MIC_OFF_SM}</div>`;
-        if (deafened) html += '<div class="badge">🔇</div>';
-        $myBadges.innerHTML = html;
-      }
-
-      function syncMyStatus() {
-        if (!db || !roomRef || !inCall) return;
-        const roleKey = isInitiator ? 'caller' : 'callee';
-        window._fb.set(window._fb.ref(db, `rooms/${$roomInput.value}/${roleKey}MicMuted`), micMuted);
-        window._fb.set(window._fb.ref(db, `rooms/${$roomInput.value}/${roleKey}Deafened`), deafened);
-      }
-
-      // ─── АВАТАР ─────────────────────────────────────────────────────────────
-      window.loadAvatar = function(input) {
-        const file = input.files[0]; if (!file) return;
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-          const b64 = e.target.result;
-          $myAvatar.innerHTML = `<img src="${b64}" /><div class="avatar-upload-hint">📷</div>`;
-          localStorage.setItem(avatarKey(), b64); renderTopbar();
-          if (db && currentUser && !currentUser.isAdmin)
-            try { await window._fb.set(window._fb.ref(db, `accounts/${currentUser.name}/avatar`), b64); } catch(ex) {}
-        };
-        reader.readAsDataURL(file);
-      };
-
-      function avatarKey() {
-        return currentUser ? `voiceAvatar_${currentUser.name}` : 'voiceAvatar_guest';
-      }
-
-      // ─── ОСТАЛЬНЫЕ UI ФУНКЦИИ (без изменений из изначального кода) ─────────
-      function showLogin() {
-        $loginOverlay.classList.add('open');
-        setTimeout(() => document.getElementById('loginName').focus(), 100);
-      }
-
-      async function onLoggedIn() {
-        $loginOverlay.classList.remove('open');
-        $joinBtn.style.display = '';
-        $joinBtn.textContent = 'Войти в звонок';
-        $joinBtn.className = 'btn-join primary';
-        setStatus('idle', `Привет, ${currentUser.name}!`);
-        const av = $myAvatar;
-        let savedAvatar = localStorage.getItem(avatarKey());
-        if (!savedAvatar && db && currentUser && !currentUser.isAdmin) {
-          try {
-            const snap = await window._fb.get(window._fb.ref(db, `accounts/${currentUser.name}/avatar`));
-            if (snap.exists()) { savedAvatar = snap.val(); localStorage.setItem(avatarKey(), savedAvatar); }
-          } catch(e) {}
-        }
-        if (savedAvatar) av.innerHTML = `<img src="${savedAvatar}" /><div class="avatar-upload-hint">📷</div>`;
-        else av.innerHTML = `<span id="myAvatarText">${currentUser.name.slice(0,2).toUpperCase()}</span>`;
-        av.onclick = () => document.getElementById('avatarInput').click();
-        renderTopbar();
-      }
-
-      function getTopbarAvatarHtml() {
-        const saved = localStorage.getItem(avatarKey());
-        if (saved) return `<div style="width:24px;height:24px;border-radius:50%;overflow:hidden;flex-shrink:0"><img src="${saved}" style="width:100%;height:100%;object-fit:cover"/></div>`;
-        return `<div class="user-avatar-sm">${currentUser.name.slice(0,2).toUpperCase()}</div>`;
-      }
-
-      function renderTopbar() {
-        if (!currentUser) { $topbarRight.innerHTML = ''; return; }
-        const av = getTopbarAvatarHtml();
-        if (currentUser.isAdmin) {
-          $topbarRight.innerHTML = `<div class="user-chip" style="gap:0;background:none;border:none;padding:0">
-            <div style="display:flex;align-items:center;gap:8px;cursor:pointer;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:5px 12px 5px 8px;margin-right:10px" onclick="openAvatarPanel()">${av}<span>${currentUser.name}</span></div>
-            <span class="admin-badge" style="cursor:pointer;padding:5px 12px;border-radius:20px;margin-left:0" onclick="openManager()">admin</span></div>`;
-        } else {
-          $topbarRight.innerHTML = `<div class="user-chip" onclick="openAvatarPanel()">${av}<span>${currentUser.name}</span></div>`;
-        }
-      }
-
-      window.doLogin = async function() {
-        const name = document.getElementById('loginName').value.trim().toLowerCase();
-        const pass = document.getElementById('loginPass').value;
-        const err  = document.getElementById('loginErr');
-        err.textContent = '';
-        if (!name || !pass) { err.textContent = 'Заполни оба поля'; return; }
-        const hash = await sha256(pass);
-        if (name === ADMIN_NAME && hash === ADMIN_PASS_HASH) {
-          currentUser = { name: ADMIN_NAME, isAdmin: true };
-          localStorage.setItem('voiceUser', JSON.stringify(currentUser));
-          onLoggedIn(); return;
-        }
-        if (!db) { err.textContent = 'Firebase не настроен'; return; }
-        const snap = await window._fb.get(window._fb.ref(db, `accounts/${name}`));
-        if (!snap.exists() || snap.val().passHash !== hash) { err.textContent = 'Неверное имя или пароль'; return; }
-        currentUser = { name, isAdmin: false };
+    window.doLogin = async function() {
+      const name = document.getElementById('loginName').value.trim().toLowerCase();
+      const pass = document.getElementById('loginPass').value;
+      const err  = document.getElementById('loginErr');
+      err.textContent = '';
+      if (!name || !pass) { err.textContent = 'Заполни оба поля'; return; }
+      const hash = await sha256(pass);
+      if (name === ADMIN_NAME && hash === ADMIN_PASS_HASH) {
+        currentUser = { name: ADMIN_NAME, isAdmin: true };
         localStorage.setItem('voiceUser', JSON.stringify(currentUser));
-        onLoggedIn();
-      };
+        onLoggedIn(); return;
+      }
+      if (!db) { err.textContent = 'Firebase не настроен'; return; }
+      const snap = await get(ref(db, `accounts/${name}`));
+      if (!snap.exists() || snap.val().passHash !== hash) { err.textContent = 'Неверное имя или пароль'; return; }
+      currentUser = { name, isAdmin: false };
+      localStorage.setItem('voiceUser', JSON.stringify(currentUser));
+      onLoggedIn();
+    };
 
-      window.doLogout = function() {
-        localStorage.removeItem('voiceUser'); currentUser = null;
-        $topbarRight.innerHTML = ''; $joinBtn.style.display = 'none';
-        $controls.classList.remove('visible'); $avatars.classList.remove('visible');
-        if (inCall) leaveCall();
-        setStatus('idle', 'Войди в аккаунт чтобы начать');
-        closeManager(); closeAvatarPanel(); showLogin();
-      };
+    window.doLogout = function() {
+      localStorage.removeItem('voiceUser'); currentUser = null;
+      $topbarRight.innerHTML = ''; $joinBtn.style.display = 'none';
+      $controls.classList.remove('visible'); $avatars.classList.remove('visible');
+      if (inCall) leaveCall();
+      setStatus('idle', 'Войди в аккаунт чтобы начать');
+      closeManager(); closeAvatarPanel(); showLogin();
+    };
 
-      window.openAvatarPanel = function() {
-        if (!currentUser) return;
-        const prev = document.getElementById('panelAvatarPreview');
-        const saved = localStorage.getItem(avatarKey());
-        if (saved) prev.innerHTML = `<img src="${saved}" style="width:100%;height:100%;object-fit:cover">`;
-        else prev.textContent = currentUser.name.slice(0,2).toUpperCase();
-        $avatarPanelOverlay.classList.add('open');
-      };
-      window.closeAvatarPanel = function() { $avatarPanelOverlay.classList.remove('open'); };
-      $avatarPanelOverlay.addEventListener('click', e => { if(e.target === $avatarPanelOverlay) closeAvatarPanel(); });
+    function avatarKey() {
+     return currentUser ? `voiceAvatar_${currentUser.name}` : 'voiceAvatar_guest';
+    }
 
-      window.uploadPanelAvatar = function(input) {
-        const file = input.files[0]; if (!file) return;
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-          const b64 = e.target.result;
-          localStorage.setItem(avatarKey(), b64);
-          document.getElementById('panelAvatarPreview').innerHTML = `<img src="${b64}" style="width:100%;height:100%;object-fit:cover">`;
-          renderTopbar();
-          $myAvatar.innerHTML = `<img src="${b64}" /><div class="avatar-upload-hint">📷</div>`;
-          if (db && currentUser && !currentUser.isAdmin)
-            try { await window._fb.set(window._fb.ref(db, `accounts/${currentUser.name}/avatar`), b64); } catch(ex) {}
-        };
-        reader.readAsDataURL(file);
-      };
+    document.getElementById('loginName').addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('loginPass').focus(); });
+    document.getElementById('loginPass').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
 
-      window.removePanelAvatar = async function() {
-        localStorage.removeItem(avatarKey());
-        document.getElementById('panelAvatarPreview').textContent = currentUser.name.slice(0,2).toUpperCase();
-        if (db && currentUser && !currentUser.isAdmin)
-          try { await window._fb.remove(window._fb.ref(db, `accounts/${currentUser.name}/avatar`)); } catch(ex) {}
+    window.openAvatarPanel = function() {
+      if (!currentUser) return;
+      const prev = document.getElementById('panelAvatarPreview');
+      const saved = localStorage.getItem(avatarKey());
+      if (saved) prev.innerHTML = `<img src="${saved}" style="width:100%;height:100%;object-fit:cover">`;
+      else prev.textContent = currentUser.name.slice(0,2).toUpperCase();
+      $avatarPanelOverlay.classList.add('open');
+    };
+    window.closeAvatarPanel = function() { $avatarPanelOverlay.classList.remove('open'); };
+    $avatarPanelOverlay.addEventListener('click', e => { if(e.target === $avatarPanelOverlay) closeAvatarPanel(); });
+
+    window.uploadPanelAvatar = function(input) {
+      const file = input.files[0]; if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const b64 = e.target.result;
+        localStorage.setItem(avatarKey(), b64);
+        document.getElementById('panelAvatarPreview').innerHTML = `<img src="${b64}" style="width:100%;height:100%;object-fit:cover">`;
         renderTopbar();
-        $myAvatar.innerHTML = `<span id="myAvatarText">${currentUser.name.slice(0,2).toUpperCase()}</span><div class="avatar-upload-hint">📷</div>`;
+        $myAvatar.innerHTML = `<img src="${b64}" /><div class="avatar-upload-hint">📷</div>`;
+        if (db && currentUser && !currentUser.isAdmin)
+          try { await set(ref(db, `accounts/${currentUser.name}/avatar`), b64); } catch(ex) {}
       };
+      reader.readAsDataURL(file);
+    };
 
-      window.openManager = async function() {
-        if (!currentUser?.isAdmin) return;
-        document.getElementById('managerErr').textContent = '';
-        document.getElementById('newAccName').value = '';
-        document.getElementById('newAccPass').value = '';
-        await renderAccountList();
-        $managerOverlay.classList.add('open');
-      };
-      window.closeManager = function() { $managerOverlay.classList.remove('open'); };
-      $managerOverlay.addEventListener('click', e => { if(e.target === $managerOverlay) closeManager(); });
+    window.removePanelAvatar = async function() {
+      localStorage.removeItem(avatarKey());
+      document.getElementById('panelAvatarPreview').textContent = currentUser.name.slice(0,2).toUpperCase();
+      if (db && currentUser && !currentUser.isAdmin)
+        try { await remove(ref(db, `accounts/${currentUser.name}/avatar`)); } catch(ex) {}
+      renderTopbar();
+      $myAvatar.innerHTML = `<span id="myAvatarText">${currentUser.name.slice(0,2).toUpperCase()}</span><div class="avatar-upload-hint">📷</div>`;
+    };
 
-      async function renderAccountList() {
-        const list = document.getElementById('accountList');
-        list.innerHTML = '<div class="empty-list">Загружаем...</div>';
-        let rows = `<div class="account-row"><div class="account-row-info"><div class="account-row-name">${ADMIN_NAME}</div><div class="account-row-role">Администратор · нельзя удалить</div></div><span class="admin-badge">admin</span></div>`;
-        if (db) {
-          const snap = await window._fb.get(window._fb.ref(db, 'accounts'));
-          if (snap.exists()) Object.keys(snap.val()).sort().forEach(n => {
-            rows += `<div class="account-row"><div class="account-row-info"><div class="account-row-name">${escHtml(n)}</div><div class="account-row-role">Пользователь</div></div><button class="account-row-del" onclick="deleteAccount('${escHtml(n)}')">✕</button></div>`;
+    window.openManager = async function() {
+      if (!currentUser?.isAdmin) return;
+      document.getElementById('managerErr').textContent = '';
+      document.getElementById('newAccName').value = '';
+      document.getElementById('newAccPass').value = '';
+      await renderAccountList();
+      $managerOverlay.classList.add('open');
+    };
+    window.closeManager = function() { $managerOverlay.classList.remove('open'); };
+    $managerOverlay.addEventListener('click', e => { if(e.target === $managerOverlay) closeManager(); });
+
+    async function renderAccountList() {
+      const list = document.getElementById('accountList');
+      list.innerHTML = '<div class="empty-list">Загружаем...</div>';
+      let rows = `<div class="account-row"><div class="account-row-info"><div class="account-row-name">${ADMIN_NAME}</div><div class="account-row-role">Администратор · нельзя удалить</div></div><span class="admin-badge">admin</span></div>`;
+      if (db) {
+        const snap = await get(ref(db, 'accounts'));
+        if (snap.exists()) Object.keys(snap.val()).sort().forEach(n => {
+          rows += `<div class="account-row"><div class="account-row-info"><div class="account-row-name">${escHtml(n)}</div><div class="account-row-role">Пользователь</div></div><button class="account-row-del" onclick="deleteAccount('${escHtml(n)}')">✕</button></div>`;
+        });
+      }
+      list.innerHTML = rows;
+    }
+
+    window.createAccount = async function() {
+      const name = document.getElementById('newAccName').value.trim().toLowerCase().replace(/[^a-z0-9_]/g,'');
+      const pass = document.getElementById('newAccPass').value;
+      const err  = document.getElementById('managerErr');
+      err.textContent = '';
+      if (!name) { err.textContent = 'Введи имя (только a-z, 0-9, _)'; return; }
+      if (name === ADMIN_NAME) { err.textContent = 'Имя зарезервировано'; return; }
+      if (pass.length < 4) { err.textContent = 'Пароль минимум 4 символа'; return; }
+      if (!db) { err.textContent = 'Firebase не настроен'; return; }
+      if ((await get(ref(db, `accounts/${name}`))).exists()) { err.textContent = 'Имя занято'; return; }
+      await set(ref(db, `accounts/${name}`), { passHash: await sha256(pass) });
+      document.getElementById('newAccName').value = '';
+      document.getElementById('newAccPass').value = '';
+      await renderAccountList();
+    };
+
+    window.deleteAccount = async function(name) {
+      if (!db || name === ADMIN_NAME || !confirm(`Удалить «${name}»?`)) return;
+      await remove(ref(db, `accounts/${name}`));
+      await renderAccountList();
+    };
+
+    function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+    // ─── ADAPTIVE AUDIO STREAM ─────────────────────────────────────────────────
+    async function getAudioStream() {
+      const attempts = [
+        { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false },
+        { audio: { echoCancellation: true, noiseSuppression: true }, video: false },
+        { audio: { echoCancellation: true }, video: false },
+        { audio: true, video: false }
+      ];
+      for (const constraints of attempts) {
+        try { return await navigator.mediaDevices.getUserMedia(constraints); } catch (e) { continue; }
+      }
+      throw new Error('Микрофон недоступен');
+    }
+
+    // ─── CALL & AUDIO PIPELINE ────────────────────────────────────────────────
+    window.joinCall = async function() {
+      hasLeft = false;
+      if (!currentUser || !db) { showError('Firebase инициализируется, подожди секунду.'); return; }
+      clearError();
+      const roomName = $roomInput.value.trim().replace(/\s+/g,'_').replace(/[^\w\u0400-\u04FF-]/g,'') || 'комната';
+      $roomInput.value = roomName;
+      setStatus('waiting', 'Подключаемся...');
+      $joinBtn.disabled = true;
+
+      $remoteAudio.load();
+      $remoteAudio.play().catch(() => {});
+
+      try {
+        localStream = await getAudioStream();
+        micMuted = false;
+        localStream.getAudioTracks().forEach(t => { t.enabled = true; });
+      } catch(e) {
+        console.warn(e);
+        let msg = 'Нет доступа к микрофону. ';
+        if (e.name === 'NotAllowedError') msg += 'Разреши доступ в настройках браузера.';
+        else if (e.name === 'NotFoundError') msg += 'Микрофон не найден.';
+        else msg += e.message;
+        showError(msg);
+        $joinBtn.disabled = false;
+        return;
+      }
+
+      hasLeft = false; inCall = false; isInitiator = false; pc = null;
+      updateBadgesUI();
+      await startWebRTC(roomName);
+    };
+
+    let _signalingBusy = false, _addedCandidates = new Set();
+
+    async function setPeerNameAndAvatar(name) {
+      if (!name || name === 'Собеседник') return;
+      $peerName.textContent = name;
+      const av = $peerAvatar;
+      let avatarUrl = null;
+      if (db && name !== ADMIN_NAME) {
+        try {
+          const snap = await get(ref(db, `accounts/${name}/avatar`));
+          if (snap.exists()) avatarUrl = snap.val();
+        } catch(e) {}
+      }
+      av.innerHTML = avatarUrl
+        ? `<img src="${avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%" />`
+        : `<span id="peerAvatarText">${name.slice(0,2).toUpperCase()}</span>`;
+    }
+
+    async function startWebRTC(roomName) {
+      roomRef = ref(db, `rooms/${roomName}`);
+      _signalingBusy = false;
+      _addedCandidates = new Set();
+
+      onValue(roomRef, async (snap) => {
+        if (hasLeft) return;
+        const data = snap.val();
+        
+        if (data) {
+          const peerName = isInitiator ? data.calleeName : data.callerName;
+          if (peerName && peerName !== $peerName.textContent) {
+            await setPeerNameAndAvatar(peerName);
+          }
+
+          const peerMicMuted = isInitiator ? data.calleeMicMuted : data.callerMicMuted;
+          const peerDeafened = isInitiator ? data.calleeDeafened : data.callerDeafened;
+          const $peerBadges = document.getElementById('peerBadges');
+          if ($peerBadges) {
+            let peerHtml = '';
+            if (peerMicMuted) peerHtml += `<div class="badge">${ICON_MIC_OFF_SM}</div>`;
+            if (peerDeafened) peerHtml += '<div class="badge">🔇</div>';
+            $peerBadges.innerHTML = peerHtml;
+          }
+        }
+
+        if (!data || !data.offer) {
+          if (inCall || _signalingBusy || isInitiator) return;
+          _signalingBusy = true; isInitiator = true;
+          await createOffer(roomName);
+          _signalingBusy = false;
+        } else if (data.offer && !data.answer && !isInitiator) {
+          if (inCall || _signalingBusy) return;
+          _signalingBusy = true; isInitiator = false;
+          await createAnswer(roomName, data.offer);
+          _signalingBusy = false;
+        } else if (data.answer && isInitiator && pc && pc.signalingState !== 'stable') {
+          await pc.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(()=>{});
+        }
+        
+        if (data && pc) {
+          const theirKey = isInitiator ? 'iceCallee' : 'iceCaller';
+          if (data[theirKey]) Object.entries(data[theirKey]).forEach(async ([key, c]) => {
+            if (c?.candidate && !_addedCandidates.has(key)) {
+              _addedCandidates.add(key);
+              try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch(e) {}
+            }
           });
         }
-        list.innerHTML = rows;
-      }
-
-      window.createAccount = async function() {
-        const name = document.getElementById('newAccName').value.trim().toLowerCase().replace(/[^a-z0-9_]/g,'');
-        const pass = document.getElementById('newAccPass').value;
-        const err  = document.getElementById('managerErr');
-        err.textContent = '';
-        if (!name) { err.textContent = 'Введи имя (только a-z, 0-9, _)'; return; }
-        if (name === ADMIN_NAME) { err.textContent = 'Имя зарезервировано'; return; }
-        if (pass.length < 4) { err.textContent = 'Пароль минимум 4 символа'; return; }
-        if (!db) { err.textContent = 'Firebase не настроен'; return; }
-        if ((await window._fb.get(window._fb.ref(db, `accounts/${name}`))).exists()) { err.textContent = 'Имя занято'; return; }
-        await window._fb.set(window._fb.ref(db, `accounts/${name}`), { passHash: await sha256(pass) });
-        document.getElementById('newAccName').value = '';
-        document.getElementById('newAccPass').value = '';
-        await renderAccountList();
-      };
-
-      window.deleteAccount = async function(name) {
-        if (!db || name === ADMIN_NAME || !confirm(`Удалить «${name}»?`)) return;
-        await window._fb.remove(window._fb.ref(db, `accounts/${name}`));
-        await renderAccountList();
-      };
-
-      function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-
-      // ─── SPEAKING DETECTION ─────────────────────────────────────────────────
-      let _audioCtxVis = null, _analyserLocal = null, _analyserRemote = null;
-      let _spkIntLocal = null, _spkIntRemote = null;
-
-      function startSpeakingDetection() {
-        try {
-          _audioCtxVis = new (window.AudioContext || window.webkitAudioContext)();
-          if (localStream) {
-            const src = _audioCtxVis.createMediaStreamSource(localStream);
-            _analyserLocal = _audioCtxVis.createAnalyser(); 
-            _analyserLocal.fftSize = 512; 
-            src.connect(_analyserLocal);
-            
-            const data = new Uint8Array(_analyserLocal.frequencyBinCount);
-            _spkIntLocal = setInterval(() => {
-              if (!_analyserLocal) return;
-              _analyserLocal.getByteFrequencyData(data);
-              const vol = data.reduce((a,b)=>a+b,0) / data.length;
-              $myAvatar.classList.toggle('speaking', vol > 8 && !micMuted);
-            }, 80);
-          }
-          if ($remoteAudio.srcObject) {
-            const src2 = _audioCtxVis.createMediaStreamSource($remoteAudio.srcObject);
-            _analyserRemote = _audioCtxVis.createAnalyser(); 
-            _analyserRemote.fftSize = 512; 
-            src2.connect(_analyserRemote);
-            
-            const data2 = new Uint8Array(_analyserRemote.frequencyBinCount);
-            _spkIntRemote = setInterval(() => {
-              if (!_analyserRemote) return;
-              _analyserRemote.getByteFrequencyData(data2);
-              $peerAvatar.classList.toggle('speaking', data2.reduce((a,b)=>a+b,0)/data2.length > 8);
-            }, 80);
-          }
-        } catch(e) { console.warn('AudioContext error:', e); }
-      }
-
-      function stopSpeakingDetection() {
-        clearInterval(_spkIntLocal); clearInterval(_spkIntRemote);
-        _spkIntLocal = null; _spkIntRemote = null;
-        if (_audioCtxVis) { try { _audioCtxVis.close(); } catch(e){} _audioCtxVis = null; }
-        _analyserLocal = null; _analyserRemote = null;
-        $myAvatar.classList.remove('speaking');
-        $peerAvatar.classList.remove('speaking');
-      }
-
-      function setCallUI(active) {
-        const h = document.getElementById('mainHeader'), r = document.getElementById('roomCard');
-        if (h) h.style.display = active ? 'none' : '';
-        if (r) r.style.display = active ? 'none' : '';
-      }
-      function setStatus(state, text) {
-        $statusText.textContent = text; $dot.className = 'dot';
-        if (state==='waiting')   $dot.classList.add('waiting');
-        if (state==='connected') $dot.classList.add('connected');
-        if (state==='error')     $dot.classList.add('error');
-      }
-      function showError(msg) { $errorBox.textContent = msg; $errorBox.classList.add('visible'); setStatus('error','Ошибка'); $joinBtn.disabled = false; }
-      function clearError() { $errorBox.textContent = ''; $errorBox.classList.remove('visible'); }
-      window.toggleRoomHint = function() {
-        const h = document.getElementById('roomHint'), b = document.getElementById('hintBtn');
-        const open = h.style.display === 'none';
-        h.style.display = open ? 'block' : 'none';
-        b.style.borderColor = b.style.color = open ? 'var(--accent)' : 'var(--muted)';
-      };
-
-      // ─── СТАРТ ──────────────────────────────────────────────────────────────
-      window.addEventListener('load', async () => {
-        const urlRoom = new URLSearchParams(location.search).get('room');
-        if (urlRoom) $roomInput.value = urlRoom;
-        db = initFirebase();
-        const saved = localStorage.getItem('voiceUser');
-        if (saved) {
-          try { currentUser = JSON.parse(saved); onLoggedIn(); } catch { showLogin(); }
-        } else {
-          showLogin();
-        }
       });
+    }
 
+    async function createOffer(roomName) {
+      setStatus('waiting', 'Ожидаем собеседника...');
+      pc = buildPC(roomName, true);
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      const rRef = ref(db, `rooms/${roomName}`);
+      await set(rRef, { 
+        offer: { type: offer.type, sdp: offer.sdp }, 
+        callerName: currentUser.name,
+        callerMicMuted: micMuted,
+        callerDeafened: deafened
+      });
+      onDisconnect(rRef).remove();
+    }
+
+    async function createAnswer(roomName, offerData) {
+      pc = buildPC(roomName, false);
+      await pc.setRemoteDescription(new RTCSessionDescription(offerData));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      
+      await set(ref(db, `rooms/${roomName}/answer`), { type: answer.type, sdp: answer.sdp });
+      await set(ref(db, `rooms/${roomName}/calleeName`), currentUser.name);
+      await set(ref(db, `rooms/${roomName}/calleeMicMuted`), micMuted);
+      await set(ref(db, `rooms/${roomName}/calleeDeafened`), deafened);
+    }
+
+    function buildPC(roomName, asInitiator) {
+      const connection = new RTCPeerConnection(ICE_SERVERS);
+      localStream.getTracks().forEach(t => connection.addTrack(t, localStream));
+      
+      remoteStream = new MediaStream();
+      $remoteAudio.srcObject = remoteStream;
+      connection.ontrack = (e) => {
+        e.streams[0].getTracks().forEach(t => remoteStream.addTrack(t));
+        if (!inCall) { inCall = true; onConnected(); }
+      };
+      connection.onicecandidate = (e) => {
+        if (e.candidate) {
+          push(ref(db, `rooms/${roomName}/${asInitiator ? 'iceCaller' : 'iceCallee'}`), {
+            candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex
+          });
+        }
+      };
+      connection.onconnectionstatechange = () => {
+        const s = connection.connectionState;
+        if ((s==='disconnected'||s==='failed'||s==='closed') && inCall && !hasLeft) onPeerLeft();
+      };
+      return connection;
+    }
+
+    function onConnected() {
+      setStatus('connected', 'Соединение установлено');
+      $avatars.classList.add('visible'); $controls.classList.add('visible');
+      $joinBtn.style.display = 'none'; setCallUI(true);
+      syncMyStatus();
+      $remoteAudio.play().catch(() => {});
+      startSpeakingDetection();
+    }
+
+    function onPeerLeft() {
+      setStatus('waiting', 'Собеседник отключился. Ждём...');
+      $avatars.classList.remove('visible');
+      $peerAvatar.innerHTML = '<span id="peerAvatarText">👤</span>';
+      document.getElementById('peerBadges').innerHTML = '';
+      $peerName.textContent = 'Собеседник'; inCall = false;
+      setCallUI(false); stopSpeakingDetection();
+    }
+
+    window.leaveCall = async function() {
+      hasLeft = true; inCall = false; isInitiator = false;
+      if (roomRef) { try { off(roomRef); } catch(e){} }
+      roomRef = null;
+      if (pc) { pc.close(); pc = null; }
+      if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream = null; }
+      $remoteAudio.srcObject = null;
+      
+      $controls.classList.remove('visible'); $avatars.classList.remove('visible');
+      document.getElementById('myBadges').innerHTML = '';
+      document.getElementById('peerBadges').innerHTML = '';
+      $peerAvatar.innerHTML = '<span id="peerAvatarText">👤</span>';
+      $peerName.textContent = 'Собеседник';
+      setStatus('idle', 'Ты вышел из звонка'); setCallUI(false); stopSpeakingDetection();
+      micMuted = false; deafened = false; updateMicUI(); updateDeafUI(); updateBadgesUI();
+      $joinBtn.disabled = false; $joinBtn.style.display = '';
+      $joinBtn.textContent = 'Войти обратно'; $joinBtn.className = 'btn-join secondary';
+    };
+
+    // ─── MICROPHONE / DEAF ────────────────────────────────────────────────────
+    window.toggleMic = function() {
+      if (!localStream) return;
+      micMuted = !micMuted;
+      localStream.getAudioTracks().forEach(t => { t.enabled = !micMuted; });
+      updateMicUI();
+      updateBadgesUI();
+      syncMyStatus();
+    };
+
+    window.toggleDeaf = function() { 
+      deafened = !deafened; 
+      $remoteAudio.muted = deafened; 
+      updateDeafUI(); 
+      updateBadgesUI();
+      syncMyStatus();
+    };
+
+    const ICON_MIC_ON  = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
+    const ICON_MIC_OFF = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
+    const ICON_MIC_OFF_SM = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
+
+    function updateMicUI() {
+      if (micMuted) {
+        $micIcon.innerHTML = ICON_MIC_OFF;
+        $micBtn.classList.add('active');
+      } else {
+        $micIcon.innerHTML = ICON_MIC_ON;
+        $micBtn.classList.remove('active');
+      }
+    }
+
+    function updateDeafUI() {
+      if (deafened) { $deafIcon.textContent = '🔇'; $deafLabel.textContent = 'Звук'; $deafBtn.classList.add('active'); }
+      else          { $deafIcon.textContent = '🔊'; $deafLabel.textContent = 'Звук'; $deafBtn.classList.remove('active'); }
+    }
+
+    function updateBadgesUI() {
+      const $myBadges = document.getElementById('myBadges');
+      if (!$myBadges) return;
+      let html = '';
+      if (micMuted) html += `<div class="badge">${ICON_MIC_OFF_SM}</div>`;
+      if (deafened) html += '<div class="badge">🔇</div>';
+      $myBadges.innerHTML = html;
+    }
+
+    function syncMyStatus() {
+      if (!db || !roomRef || !inCall) return;
+      const roleKey = isInitiator ? 'caller' : 'callee';
+      set(ref(db, `rooms/${$roomInput.value}/${roleKey}MicMuted`), micMuted);
+      set(ref(db, `rooms/${$roomInput.value}/${roleKey}Deafened`), deafened);
+    }
+
+    window.loadAvatar = function(input) {
+      const file = input.files[0]; if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const b64 = e.target.result;
+        $myAvatar.innerHTML = `<img src="${b64}" /><div class="avatar-upload-hint">📷</div>`;
+        localStorage.setItem(avatarKey(), b64); renderTopbar();
+        if (db && currentUser && !currentUser.isAdmin)
+          try { await set(ref(db, `accounts/${currentUser.name}/avatar`), b64); } catch(ex) {}
+      };
+      reader.readAsDataURL(file);
+    };
+
+    (function() {
+      try {
+        const saved = localStorage.getItem(avatarKey());
+        if (saved) {
+          const av = $myAvatar;
+          av.innerHTML = `<img src="${saved}" /><div class="avatar-upload-hint">📷</div>`;
+          av.onclick = () => document.getElementById('avatarInput').click();
+        }
+      } catch(e) {}
     })();
+
+    // ─── SPEAKING DETECTION ───────────────────────────────────────────────────
+    let _audioCtxVis = null, _analyserLocal = null, _analyserRemote = null;
+    let _spkIntLocal = null, _spkIntRemote = null;
+
+    function startSpeakingDetection() {
+      try {
+        _audioCtxVis = new (window.AudioContext || window.webkitAudioContext)();
+        if (localStream) {
+          const src = _audioCtxVis.createMediaStreamSource(localStream);
+          _analyserLocal = _audioCtxVis.createAnalyser(); 
+          _analyserLocal.fftSize = 512; 
+          src.connect(_analyserLocal);
+          
+          const data = new Uint8Array(_analyserLocal.frequencyBinCount);
+          _spkIntLocal = setInterval(() => {
+            if (!_analyserLocal) return;
+            _analyserLocal.getByteFrequencyData(data);
+            const vol = data.reduce((a,b)=>a+b,0) / data.length;
+            $myAvatar.classList.toggle('speaking', vol > 8 && !micMuted);
+          }, 80);
+        }
+        if ($remoteAudio.srcObject) {
+          const src2 = _audioCtxVis.createMediaStreamSource($remoteAudio.srcObject);
+          _analyserRemote = _audioCtxVis.createAnalyser(); 
+          _analyserRemote.fftSize = 512; 
+          src2.connect(_analyserRemote);
+          
+          const data2 = new Uint8Array(_analyserRemote.frequencyBinCount);
+          _spkIntRemote = setInterval(() => {
+            if (!_analyserRemote) return;
+            _analyserRemote.getByteFrequencyData(data2);
+            $peerAvatar.classList.toggle('speaking', data2.reduce((a,b)=>a+b,0)/data2.length > 8);
+          }, 80);
+        }
+      } catch(e) { console.warn('AudioContext error:', e); }
+    }
+
+    function stopSpeakingDetection() {
+      clearInterval(_spkIntLocal); clearInterval(_spkIntRemote);
+      _spkIntLocal = null; _spkIntRemote = null;
+      if (_audioCtxVis) { try { _audioCtxVis.close(); } catch(e){} _audioCtxVis = null; }
+      _analyserLocal = null; _analyserRemote = null;
+      $myAvatar.classList.remove('speaking');
+      $peerAvatar.classList.remove('speaking');
+    }
+
+    function setCallUI(active) {
+      const h = document.getElementById('mainHeader'), r = document.getElementById('roomCard');
+      if (h) h.style.display = active ? 'none' : '';
+      if (r) r.style.display = active ? 'none' : '';
+    }
+    function setStatus(state, text) {
+      $statusText.textContent = text; $dot.className = 'dot';
+      if (state==='waiting')   $dot.classList.add('waiting');
+      if (state==='connected') $dot.classList.add('connected');
+      if (state==='error')     $dot.classList.add('error');
+    }
+    function showError(msg) { $errorBox.textContent = msg; $errorBox.classList.add('visible'); setStatus('error','Ошибка'); $joinBtn.disabled = false; }
+    function clearError() { $errorBox.textContent = ''; $errorBox.classList.remove('visible'); }
+    window.toggleRoomHint = function() {
+      const h = document.getElementById('roomHint'), b = document.getElementById('hintBtn');
+      const open = h.style.display === 'none';
+      h.style.display = open ? 'block' : 'none';
+      b.style.borderColor = b.style.color = open ? 'var(--accent)' : 'var(--muted)';
+    };
   </script>
 </body>
 </html>
