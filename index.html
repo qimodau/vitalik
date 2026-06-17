@@ -2,10 +2,10 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>виталик</title>
   <style>
-    /* ===== ВЕСЬ ТВОЙ CSS СОХРАНЕН ===== */
+    /* ===== ТВОЙ CSS БЕЗ ИЗМЕНЕНИЙ (только убран стиль .auto-btn) ===== */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
       --bg: #0e0e10; --surface: #18181b; --surface2: #222228;
@@ -108,6 +108,7 @@
 
   <div class="topbar"><div></div><div class="topbar-right" id="topbarRight"></div></div>
 
+  <!-- Оверлеи логина, менеджера и аватара без изменений -->
   <div class="overlay" id="loginOverlay">
     <div class="modal">
       <div style="text-align:center;padding-bottom:4px">
@@ -221,7 +222,7 @@
     </div>
   </div>
 
-  <audio id="remoteAudio" autoplay></audio>
+  <audio id="remoteAudio" autoplay playsinline></audio>
 
   <script type="module">
     // ─── FIREBASE CONFIG ──────────────────────────────────────────────────────
@@ -261,6 +262,9 @@
     let roomRef = null, isInitiator = false;
     let micMuted = false, deafened = false, inCall = false, hasLeft = false;
     let currentUser = null;
+
+    // Автоматический mute при тишине (всегда активен)
+    let autoMutedBySilence = false;
 
     // DOM
     const $joinBtn      = document.getElementById('joinBtn');
@@ -468,6 +472,20 @@
       window._fb = { ref, set, get, onValue, off, push, remove, onDisconnect };
     }
 
+    // ─── ADAPTIVE AUDIO STREAM (максимальное шумоподавление) ─────────────────
+    async function getAudioStream() {
+      const attempts = [
+        { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false },
+        { audio: { echoCancellation: true, noiseSuppression: true }, video: false },
+        { audio: { echoCancellation: true }, video: false },
+        { audio: true, video: false }
+      ];
+      for (const constraints of attempts) {
+        try { return await navigator.mediaDevices.getUserMedia(constraints); } catch (e) { continue; }
+      }
+      throw new Error('Микрофон недоступен');
+    }
+
     // ─── CALL & AUDIO PIPELINE ────────────────────────────────────────────────
     window.joinCall = async function() {
       hasLeft = false;
@@ -478,20 +496,11 @@
       setStatus('waiting', 'Подключаемся...');
       $joinBtn.disabled = true;
 
-      try {
-        // ===== ЧИСТЫЙ НАТИВНЫЙ ПОТОК (ЛУЧШИЙ ВАРИАНТ ДЛЯ FIREFOX И ANDROID) =====
-        // Запрашиваем аппаратное/нативное подавление шума браузера (использует встроенный ML).
-        // Мы НЕ будем ломать его, пропуская через AudioContext для отправки.
-        localStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-            channelCount: 1 // Моно звук для экономии трафика и лучшей фокусировки голоса
-          },
-          video: false
-        });
+      const audioEl = document.getElementById('remoteAudio');
+      if (audioEl) { audioEl.load(); audioEl.play().catch(() => {}); }
 
+      try {
+        localStream = await getAudioStream();
       } catch(e) {
         console.warn('Ошибка доступа к микрофону:', e);
         showError('Нет доступа к микрофону. Проверь разрешение для микрофона в браузере и что сайт открыт по HTTPS.');
@@ -588,7 +597,6 @@
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       
-      const rRef = window._fb.ref(db, `rooms/${roomName}`);
       await window._fb.set(window._fb.ref(db, `rooms/${roomName}/answer`), { type: answer.type, sdp: answer.sdp });
       await window._fb.set(window._fb.ref(db, `rooms/${roomName}/calleeName`), currentUser.name);
       await window._fb.set(window._fb.ref(db, `rooms/${roomName}/calleeMicMuted`), micMuted);
@@ -597,8 +605,6 @@
 
     function buildPC(roomName, asInitiator) {
       const connection = new RTCPeerConnection(ICE_SERVERS);
-      
-      // Отправляем оригинальный чистый поток (с нативным шумодавом браузера)
       localStream.getTracks().forEach(t => connection.addTrack(t, localStream));
       
       remoteStream = new MediaStream();
@@ -626,6 +632,7 @@
       $avatars.classList.add('visible'); $controls.classList.add('visible');
       $joinBtn.style.display = 'none'; setCallUI(true);
       syncMyStatus();
+      $remoteAudio.play().catch(() => {});
       setTimeout(startSpeakingDetection, 300);
     }
 
@@ -643,11 +650,7 @@
       if (roomRef && window._fb) { try { window._fb.off(roomRef); } catch(e){} }
       roomRef = null;
       if (pc) { pc.close(); pc = null; }
-      
-      if (localStream) {
-        localStream.getTracks().forEach(t=>t.stop()); 
-        localStream = null; 
-      }
+      if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream = null; }
       $remoteAudio.srcObject = null;
       
       $controls.classList.remove('visible'); $avatars.classList.remove('visible');
@@ -661,24 +664,22 @@
       $joinBtn.textContent = 'Войти обратно'; $joinBtn.className = 'btn-join secondary';
     };
 
+    // ─── MICROPHONE TOGGLE (ручной) ───────────────────────────────────────
     window.toggleMic = function() {
       if (!localStream) return;
+      // Ручное переключение: инвертируем micMuted
       micMuted = !micMuted;
-      
-      localStream.getAudioTracks().forEach(t => { t.enabled = !micMuted; });
-      
+      applyMicState();
       updateMicUI();
       updateBadgesUI();
       syncMyStatus();
     };
-    
-    const ICON_MIC_ON  = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
-    const ICON_MIC_OFF = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
-    const ICON_MIC_OFF_SM = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
 
-    function updateMicUI() {
-      if (micMuted) { $micIcon.innerHTML = ICON_MIC_OFF; $micLabel.textContent = 'Микрофон'; $micBtn.classList.add('active'); }
-      else           { $micIcon.innerHTML = ICON_MIC_ON;  $micLabel.textContent = 'Микрофон'; $micBtn.classList.remove('active'); }
+    // Применить фактическое состояние дорожки с учётом ручного и автоматического mute
+    function applyMicState() {
+      if (!localStream) return;
+      const shouldMute = micMuted || autoMutedBySilence;
+      localStream.getAudioTracks().forEach(t => { t.enabled = !shouldMute; });
     }
 
     window.toggleDeaf = function() { 
@@ -694,11 +695,27 @@
       else          { $deafIcon.textContent = '🔊'; $deafLabel.textContent = 'Звук'; $deafBtn.classList.remove('active'); }
     }
 
+    const ICON_MIC_ON  = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
+    const ICON_MIC_OFF = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
+    const ICON_MIC_OFF_SM = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
+
+    function updateMicUI() {
+      // Иконка и активный класс зависят от фактического состояния mute (ручной или авто)
+      const isMuted = micMuted || autoMutedBySilence;
+      if (isMuted) {
+        $micIcon.innerHTML = ICON_MIC_OFF;
+        $micBtn.classList.add('active');
+      } else {
+        $micIcon.innerHTML = ICON_MIC_ON;
+        $micBtn.classList.remove('active');
+      }
+    }
+
     function updateBadgesUI() {
       const $myBadges = document.getElementById('myBadges');
       if (!$myBadges) return;
       let html = '';
-      if (micMuted) html += `<div class="badge">${ICON_MIC_OFF_SM}</div>`;
+      if (micMuted || autoMutedBySilence) html += `<div class="badge">${ICON_MIC_OFF_SM}</div>`;
       if (deafened) html += '<div class="badge">🔇</div>';
       $myBadges.innerHTML = html;
     }
@@ -706,7 +723,9 @@
     function syncMyStatus() {
       if (!db || !roomRef || !inCall) return;
       const roleKey = isInitiator ? 'caller' : 'callee';
-      window._fb.set(window._fb.ref(db, `rooms/${$roomInput.value}/${roleKey}MicMuted`), micMuted);
+      // Передаём фактическое состояние mute (учитывая автоматику)
+      const effectiveMuted = micMuted || autoMutedBySilence;
+      window._fb.set(window._fb.ref(db, `rooms/${$roomInput.value}/${roleKey}MicMuted`), effectiveMuted);
       window._fb.set(window._fb.ref(db, `rooms/${$roomInput.value}/${roleKey}Deafened`), deafened);
     }
 
@@ -734,29 +753,70 @@
       } catch(e) {}
     })();
 
-    // ─── SPEAKING DETECTION (НЕ ВЛИЯЕТ НА ПЕРЕДАЧУ ЗВУКА) ────────────────────
+    // ─── SPEAKING DETECTION + AUTO MUTE (всегда активен) ─────────────────────
     let _audioCtxVis = null, _analyserLocal = null, _analyserRemote = null;
     let _spkIntLocal = null, _spkIntRemote = null;
+    let _autoSilenceTimer = null;
+    const AUTO_SILENCE_THRESHOLD = 10;   // порог громкости (0-255), можно подстроить под телевизор
+    const AUTO_SILENCE_DELAY_MS = 800;  // задержка перед отключением при тишине
 
     function startSpeakingDetection() {
       try {
-        // Запускаем AudioContext только для визуализации. Он "слушает" поток сбоку, не ломая WebRTC.
         _audioCtxVis = new (window.AudioContext || window.webkitAudioContext)();
         
         if (localStream) {
           const src = _audioCtxVis.createMediaStreamSource(localStream);
           _analyserLocal = _audioCtxVis.createAnalyser(); 
           _analyserLocal.fftSize = 512; 
-          src.connect(_analyserLocal); // ВАЖНО: не подключаем к destination!
+          src.connect(_analyserLocal);
           
           const data = new Uint8Array(_analyserLocal.frequencyBinCount);
           _spkIntLocal = setInterval(() => {
             if (!_analyserLocal) return;
             _analyserLocal.getByteFrequencyData(data);
             const vol = data.reduce((a,b)=>a+b,0) / data.length;
-            document.getElementById('myAvatar').classList.toggle('speaking', vol > 8 && !micMuted);
+            // подсветка аватара (только если микрофон фактически не заглушен)
+            const isMuted = micMuted || autoMutedBySilence;
+            const isSpeaking = vol > AUTO_SILENCE_THRESHOLD && !isMuted;
+            document.getElementById('myAvatar').classList.toggle('speaking', isSpeaking);
+
+            // === АВТО-MUTE (постоянный) ===
+            if (localStream) {
+              const actuallySpeaking = vol > AUTO_SILENCE_THRESHOLD;
+              if (actuallySpeaking) {
+                // речь — включаем микрофон, если он был отключен автоматикой
+                if (autoMutedBySilence) {
+                  autoMutedBySilence = false;
+                  applyMicState();
+                  updateMicUI();
+                  updateBadgesUI();
+                  syncMyStatus();
+                }
+                if (_autoSilenceTimer) { clearTimeout(_autoSilenceTimer); _autoSilenceTimer = null; }
+              } else {
+                // тишина — если микрофон ещё не отключен (ни руками, ни автоматом), запускаем таймер
+                if (!_autoSilenceTimer && !micMuted && !autoMutedBySilence) {
+                  _autoSilenceTimer = setTimeout(() => {
+                    // Проверяем ещё раз текущую громкость
+                    if (!_analyserLocal) return;
+                    const currentData = new Uint8Array(_analyserLocal.frequencyBinCount);
+                    _analyserLocal.getByteFrequencyData(currentData);
+                    const currentVol = currentData.reduce((a,b)=>a+b,0) / currentData.length;
+                    if (currentVol <= AUTO_SILENCE_THRESHOLD && !micMuted && !autoMutedBySilence) {
+                      autoMutedBySilence = true;
+                      applyMicState();
+                      updateMicUI();
+                      updateBadgesUI();
+                      syncMyStatus();
+                    }
+                    _autoSilenceTimer = null;
+                  }, AUTO_SILENCE_DELAY_MS);
+                }
+              }
+            }
           }, 80);
         }
+
         if ($remoteAudio.srcObject) {
           const src2 = _audioCtxVis.createMediaStreamSource($remoteAudio.srcObject);
           _analyserRemote = _audioCtxVis.createAnalyser(); 
@@ -770,14 +830,16 @@
             document.getElementById('peerAvatar').classList.toggle('speaking', data2.reduce((a,b)=>a+b,0)/data2.length > 8);
           }, 80);
         }
-      } catch(e) { console.warn('AudioContext speaking detection error:', e); }
+      } catch(e) { console.warn('AudioContext error:', e); }
     }
 
     function stopSpeakingDetection() {
       clearInterval(_spkIntLocal); clearInterval(_spkIntRemote);
       _spkIntLocal = null; _spkIntRemote = null;
+      if (_autoSilenceTimer) { clearTimeout(_autoSilenceTimer); _autoSilenceTimer = null; }
       if (_audioCtxVis) { try { _audioCtxVis.close(); } catch(e){} _audioCtxVis = null; }
       _analyserLocal = null; _analyserRemote = null;
+      autoMutedBySilence = false;
       document.getElementById('myAvatar').classList.remove('speaking');
       document.getElementById('peerAvatar').classList.remove('speaking');
     }
