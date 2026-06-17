@@ -234,9 +234,7 @@
     const ADMIN_NAME      = 'qamodik';
     const ADMIN_PASS_HASH = '4d6fa21b90fd93c7043ada4c380872982ed81009bd8f93a4aced7db00600014b';
 
-    // ─── ICE: STUN + несколько TURN для работы без VPN ───────────────────────
-    // openrelay.metered.ca — бесплатный продакшен TURN, порты 80/443/TCP/TLS.
-    // Перебирает все варианты: P2P → UDP TURN → TCP TURN → TLS TURN.
+    // ─── ICE: STUN + TURN ───────────────────────────────────────────────────
     const ICE_SERVERS = {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -248,30 +246,102 @@
       ]
     };
 
-    // ─── ДЕТЕКТ ПЛАТФОРМЫ ─────────────────────────────────────────────────────
-    const IS_ANDROID = /Android/i.test(navigator.userAgent);
-    const IS_MOBILE  = IS_ANDROID || /iPhone|iPad|iPod/i.test(navigator.userAgent);
-    // AudioWorklet глючит на Android Chrome: даёт хрипы/дистортию.
-    // На Android/iOS используем ScriptProcessorNode (deprecated но стабильный).
-    // На десктопе — AudioWorklet (современный, низкая латентность).
-    const USE_WORKLET = !IS_MOBILE && !!(window.AudioWorklet);
+    // ─── RNNOISE через ScriptProcessor (универсально) ──────────────────────
+    let _audioCtxNS = null;
+    let _scriptNode = null;
+    let _rnnoiseInstance = null;  // экземпляр ShiguredoRnnoiseWasm.RNNoiseWasm
 
-    // RNNoise WASM через @shiguredo/noise-suppression (Jitsi-style).
-    // Работает на ВСЕХ платформах: десктоп через Worklet, мобайл через ScriptProcessor.
-    const RNNOISE_CDN = 'https://cdn.jsdelivr.net/npm/@shiguredo/noise-suppression@latest/dist';
+    async function initNoiseSuppression(localStream) {
+      try {
+        // 1. Загружаем библиотеку @shiguredo/rnnoise-wasm
+        if (typeof ShiguredoRnnoiseWasm === 'undefined') {
+          await import('https://cdn.jsdelivr.net/npm/@shiguredo/rnnoise-wasm@2023.1.0/dist/rnnoise-wasm.js');
+        }
+
+        // 2. Создаём AudioContext строго на 48000 Гц
+        _audioCtxNS = new (window.AudioContext || window.webkitAudioContext)({
+          sampleRate: 48000,
+          latencyHint: 'interactive'
+        });
+        if (_audioCtxNS.state === 'suspended') {
+          await _audioCtxNS.resume();
+        }
+
+        // 3. Создаём экземпляр RNNoise
+        _rnnoiseInstance = new ShiguredoRnnoiseWasm.RNNoiseWasm();
+
+        // 4. Узлы обработки
+        const source = _audioCtxNS.createMediaStreamSource(localStream);
+        const destination = _audioCtxNS.createMediaStreamDestination();
+
+        // 5. ScriptProcessorNode с буфером 4096 (хороший баланс)
+        const bufferSize = 4096;
+        _scriptNode = _audioCtxNS.createScriptProcessor(bufferSize, 1, 1);
+
+        _scriptNode.onaudioprocess = (event) => {
+          const input = event.inputBuffer.getChannelData(0);
+          const output = event.outputBuffer.getChannelData(0);
+
+          const FRAME_SIZE = 480;
+          let offset = 0;
+
+          while (offset + FRAME_SIZE <= input.length) {
+            const frame = input.subarray(offset, offset + FRAME_SIZE);
+
+            // Float32 -> Int16
+            const int16Frame = new Int16Array(FRAME_SIZE);
+            for (let i = 0; i < FRAME_SIZE; i++) {
+              const s = Math.max(-1, Math.min(1, frame[i]));
+              int16Frame[i] = s * 32767;
+            }
+
+            // Обработка
+            const processedInt16 = _rnnoiseInstance.processFrame(int16Frame);
+
+            // Int16 -> Float32
+            for (let i = 0; i < FRAME_SIZE; i++) {
+              output[offset + i] = processedInt16[i] / 32768;
+            }
+            offset += FRAME_SIZE;
+          }
+
+          // Остатки (меньше 480) копируем без обработки
+          if (offset < input.length) {
+            output.set(input.subarray(offset), offset);
+          }
+        };
+
+        source.connect(_scriptNode);
+        _scriptNode.connect(destination);
+
+        return destination.stream;
+      } catch (err) {
+        console.error('RNNoise init error:', err);
+        // Возвращаем оригинальный поток без обработки
+        return localStream;
+      }
+    }
+
+    function stopNoiseSuppression() {
+      if (_scriptNode) {
+        try { _scriptNode.disconnect(); } catch(e) {}
+        _scriptNode = null;
+      }
+      if (_audioCtxNS) {
+        try { _audioCtxNS.close(); } catch(e) {}
+        _audioCtxNS = null;
+      }
+      if (_rnnoiseInstance) {
+        try { _rnnoiseInstance.close(); } catch(e) {}
+        _rnnoiseInstance = null;
+      }
+    }
 
     // ─── STATE ────────────────────────────────────────────────────────────────
     let db = null, pc = null, localStream = null, remoteStream = null;
     let roomRef = null, isInitiator = false;
     let micMuted = false, deafened = false, inCall = false, hasLeft = false;
     let currentUser = null;
-
-    // RNNoise state
-    let _rnProcessor = null;      // @shiguredo processor (десктоп)
-    let _scriptNode  = null;       // ScriptProcessorNode (мобайл fallback)
-    let _audioCtxNS  = null;       // AudioContext для шумоподавления на мобайл
-    let _rnModule    = null;       // rnnoise WASM module (мобайл)
-    let _rnState     = null;       // rnnoise state handle (мобайл)
 
     // DOM
     const $joinBtn      = document.getElementById('joinBtn');
@@ -481,137 +551,6 @@
       window._fb = { ref, set, get, onValue, off, push, remove, onDisconnect };
     }
 
-    // ─── ШУМОПОДАВЛЕНИЕ — УНИВЕРСАЛЬНОЕ ──────────────────────────────────────
-    // Стратегия:
-    //   Десктоп (Chrome/Firefox): @shiguredo/noise-suppression через AudioWorklet
-    //   Мобайл (Android Chrome):  rnnoise-wasm напрямую через ScriptProcessorNode
-    //     ScriptProcessorNode deprecated, но AudioWorklet на Android дистортит —
-    //     это единственный стабильный вариант для мобайла.
-
-    async function initNoiseSuppression() {
-      if (USE_WORKLET) {
-        return await initNoiseSuppressionWorklet();
-      } else {
-        return await initNoiseSuppressionScript();
-      }
-    }
-
-    // Десктоп: AudioWorklet + @shiguredo
-    async function initNoiseSuppressionWorklet() {
-      try {
-        // Динамически грузим библиотеку если ещё не загружена
-        if (typeof Shiguredo === 'undefined') {
-          await new Promise((resolve, reject) => {
-            const s = document.createElement('script');
-            s.src = `${RNNOISE_CDN}/noise_suppression.js`;
-            s.onload = resolve;
-            s.onerror = reject;
-            document.head.appendChild(s);
-          });
-        }
-        _rnProcessor = new Shiguredo.NoiseSuppressionProcessor(RNNOISE_CDN);
-        const track = localStream.getAudioTracks()[0];
-        const processedTrack = await _rnProcessor.startProcessing(track);
-        console.log('✓ RNNoise AudioWorklet (десктоп)');
-        return new MediaStream([processedTrack]);
-      } catch(e) {
-        console.warn('RNNoise Worklet ошибка, откат:', e);
-        return localStream;
-      }
-    }
-
-    // Мобайл: ScriptProcessorNode + rnnoise-wasm (WASM inline)
-    // Грузим лёгкий WASM от Jitsi — он умеет работать синхронно в ScriptProcessor
-    async function initNoiseSuppressionScript() {
-      try {
-        // Грузим rnnoise-wasm от jitsi (синхронная версия, base64 wasm внутри)
-        if (!_rnModule) {
-          await new Promise((resolve, reject) => {
-            const s = document.createElement('script');
-            // Используем sync-версию — wasm вшит как base64, не нужен доп. fetch
-            s.src = 'https://cdn.jsdelivr.net/npm/@jitsi/rnnoise-wasm@0.0.3/dist/rnnoise-sync.js';
-            s.onload = resolve;
-            s.onerror = reject;
-            document.head.appendChild(s);
-          });
-          // Ждём инициализации WASM
-          await new Promise(resolve => {
-            const check = setInterval(() => {
-              if (typeof createRNNWasmModuleSync !== 'undefined') { clearInterval(check); resolve(); }
-            }, 50);
-            setTimeout(() => { clearInterval(check); resolve(); }, 3000);
-          });
-          _rnModule = await createRNNWasmModuleSync();
-        }
-
-        _audioCtxNS = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
-        _rnState = _rnModule.newState();
-
-        const srcNode  = _audioCtxNS.createMediaStreamSource(localStream);
-        const dstNode  = _audioCtxNS.createMediaStreamDestination();
-        // ScriptProcessorNode: 4096 сэмплов, 1 канал вход, 1 канал выход
-        const bufSize  = 4096;
-        _scriptNode = _audioCtxNS.createScriptProcessor(bufSize, 1, 1);
-
-        const FRAME = 480; // RNNoise обрабатывает по 480 сэмплов за раз
-        let inputBuf  = new Float32Array(0);
-        let outputBuf = new Float32Array(0);
-
-        _scriptNode.onaudioprocess = (ev) => {
-          const input  = ev.inputBuffer.getChannelData(0);
-          const output = ev.outputBuffer.getChannelData(0);
-
-          // Накапливаем входные данные
-          const combined = new Float32Array(inputBuf.length + input.length);
-          combined.set(inputBuf);
-          combined.set(input, inputBuf.length);
-          inputBuf = combined;
-
-          let outPos = 0;
-          const outChunks = [];
-
-          // Обрабатываем полными фреймами по 480 сэмплов
-          while (inputBuf.length >= FRAME) {
-            const frame = inputBuf.slice(0, FRAME);
-            inputBuf = inputBuf.slice(FRAME);
-            // rnnoise принимает Int16, возвращает обработанный Float32
-            const frameInt16 = new Int16Array(FRAME);
-            for (let i = 0; i < FRAME; i++) frameInt16[i] = Math.max(-32768, Math.min(32767, frame[i] * 32768));
-            const processed = _rnModule.processFrame(_rnState, frameInt16);
-            const processedFloat = new Float32Array(FRAME);
-            for (let i = 0; i < FRAME; i++) processedFloat[i] = processed[i] / 32768;
-            outChunks.push(processedFloat);
-            outPos += FRAME;
-          }
-
-          // Собираем выход
-          const outAll = new Float32Array(bufSize);
-          let writePos = 0;
-          for (const chunk of outChunks) {
-            outAll.set(chunk, writePos);
-            writePos += chunk.length;
-          }
-          output.set(outAll);
-        };
-
-        srcNode.connect(_scriptNode);
-        _scriptNode.connect(dstNode);
-
-        console.log('✓ RNNoise ScriptProcessor (мобайл)');
-        return dstNode.stream;
-      } catch(e) {
-        console.warn('RNNoise ScriptProcessor ошибка, откат на браузерное:', e);
-        return localStream;
-      }
-    }
-
-    function stopNoiseSuppression() {
-      if (_rnProcessor) { try { _rnProcessor.stopProcessing(); } catch(e) {} _rnProcessor = null; }
-      if (_scriptNode)  { try { _scriptNode.disconnect(); }       catch(e) {} _scriptNode = null; }
-      if (_rnState && _rnModule) { try { _rnModule.deleteState(_rnState); } catch(e) {} _rnState = null; }
-      if (_audioCtxNS) { try { _audioCtxNS.close(); } catch(e) {} _audioCtxNS = null; }
-    }
-
     // ─── CALL ─────────────────────────────────────────────────────────────────
     window.joinCall = async function() {
       hasLeft = false;
@@ -623,18 +562,23 @@
       $joinBtn.disabled = true;
 
       try {
-        // Отключаем браузерное noiseSuppression на десктопе — RNNoise справится лучше.
-        // На мобайле оставляем: оно работает в связке с нашим RNNoise как pre-filter.
-        const audioConstraints = IS_MOBILE
-          ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 }
-          : { echoCancellation: true, noiseSuppression: false, autoGainControl: true, channelCount: 1, sampleRate: { ideal: 48000 } };
-
+        // Запрашиваем микрофон – БЕЗ встроенного шумодава
+        const audioConstraints = {
+          echoCancellation: true,
+          noiseSuppression: false,   // полностью отключаем браузерный
+          autoGainControl: true,
+          channelCount: 1,
+          sampleRate: 48000
+        };
         localStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
       } catch(e) {
         showError('Нет доступа к микрофону'); $joinBtn.disabled = false; return;
       }
 
-      window.__processedStream = await initNoiseSuppression();
+      // Применяем внешний RNNoise через ScriptProcessor
+      const processed = await initNoiseSuppression(localStream);
+      window.__processedStream = processed;
+
       hasLeft = false; inCall = false; isInitiator = false; pc = null;
       await startWebRTC(roomName);
     };
