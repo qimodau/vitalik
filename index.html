@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>виталик</title>
   <style>
-    /* ===== ТВОЙ CSS (полностью) ===== */
+    /* ===== ТВОЙ CSS ПОЛНОСТЬЮ (без изменений) ===== */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
       --bg: #0e0e10; --surface: #18181b; --surface2: #222228;
@@ -103,15 +103,11 @@
     .empty-list { font-size: 13px; color: var(--muted); text-align: center; padding: 16px 0; }
     footer { color: var(--muted); font-size: 12px; text-align: center; padding-bottom: 8px; }
   </style>
-  <!-- ЗАГРУЖАЕМ FIREBASE ОБЫЧНЫМИ СКРИПТАМИ (не модулями) -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 </head>
 <body>
 
   <div class="topbar"><div></div><div class="topbar-right" id="topbarRight"></div></div>
 
-  <!-- Оверлеи логина, менеджера и аватара без изменений -->
   <div class="overlay" id="loginOverlay">
     <div class="modal">
       <div style="text-align:center;padding-bottom:4px">
@@ -124,8 +120,6 @@
       <button class="btn-modal primary" onclick="doLogin()">Войти</button>
     </div>
   </div>
-
-  <!-- ... остальные оверлеи (managerOverlay, avatarPanelOverlay) без изменений ... -->
 
   <div class="overlay" id="managerOverlay">
     <div class="modal">
@@ -229,7 +223,11 @@
 
   <audio id="remoteAudio" autoplay playsinline></audio>
 
+  <!-- Статический импорт Firebase – без ошибок CORS, работает на ПК и телефонах -->
   <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+    import { getDatabase, ref, set, get, onValue, off, push, remove, onDisconnect } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
+
     // ─── FIREBASE CONFIG ──────────────────────────────────────────────────────
     function getFirebaseConfig() {
       return {
@@ -320,7 +318,7 @@
       let savedAvatar = localStorage.getItem(avatarKey());
       if (!savedAvatar && db && currentUser && !currentUser.isAdmin) {
         try {
-          const snap = await window._fb.get(window._fb.ref(db, `accounts/${currentUser.name}/avatar`));
+          const snap = await get(ref(db, `accounts/${currentUser.name}/avatar`));
           if (snap.exists()) { savedAvatar = snap.val(); localStorage.setItem(avatarKey(), savedAvatar); }
         } catch(e) {}
       }
@@ -361,7 +359,7 @@
         onLoggedIn(); return;
       }
       if (!db) { err.textContent = 'Firebase не настроен'; return; }
-      const snap = await window._fb.get(window._fb.ref(db, `accounts/${name}`));
+      const snap = await get(ref(db, `accounts/${name}`));
       if (!snap.exists() || snap.val().passHash !== hash) { err.textContent = 'Неверное имя или пароль'; return; }
       currentUser = { name, isAdmin: false };
       localStorage.setItem('voiceUser', JSON.stringify(currentUser));
@@ -405,7 +403,7 @@
         renderTopbar();
         document.getElementById('myAvatar').innerHTML = `<img src="${b64}" /><div class="avatar-upload-hint">📷</div>`;
         if (db && currentUser && !currentUser.isAdmin)
-          try { await window._fb.set(window._fb.ref(db, `accounts/${currentUser.name}/avatar`), b64); } catch(ex) {}
+          try { await set(ref(db, `accounts/${currentUser.name}/avatar`), b64); } catch(ex) {}
       };
       reader.readAsDataURL(file);
     };
@@ -414,7 +412,7 @@
       localStorage.removeItem(avatarKey());
       document.getElementById('panelAvatarPreview').textContent = currentUser.name.slice(0,2).toUpperCase();
       if (db && currentUser && !currentUser.isAdmin)
-        try { await window._fb.remove(window._fb.ref(db, `accounts/${currentUser.name}/avatar`)); } catch(ex) {}
+        try { await remove(ref(db, `accounts/${currentUser.name}/avatar`)); } catch(ex) {}
       renderTopbar();
       document.getElementById('myAvatar').innerHTML = `<span id="myAvatarText">${currentUser.name.slice(0,2).toUpperCase()}</span><div class="avatar-upload-hint">📷</div>`;
     };
@@ -435,7 +433,7 @@
       list.innerHTML = '<div class="empty-list">Загружаем...</div>';
       let rows = `<div class="account-row"><div class="account-row-info"><div class="account-row-name">${ADMIN_NAME}</div><div class="account-row-role">Администратор · нельзя удалить</div></div><span class="admin-badge">admin</span></div>`;
       if (db) {
-        const snap = await window._fb.get(window._fb.ref(db, 'accounts'));
+        const snap = await get(ref(db, 'accounts'));
         if (snap.exists()) Object.keys(snap.val()).sort().forEach(n => {
           rows += `<div class="account-row"><div class="account-row-info"><div class="account-row-name">${escHtml(n)}</div><div class="account-row-role">Пользователь</div></div><button class="account-row-del" onclick="deleteAccount('${escHtml(n)}')">✕</button></div>`;
         });
@@ -452,8 +450,8 @@
       if (name === ADMIN_NAME) { err.textContent = 'Имя зарезервировано'; return; }
       if (pass.length < 4) { err.textContent = 'Пароль минимум 4 символа'; return; }
       if (!db) { err.textContent = 'Firebase не настроен'; return; }
-      if ((await window._fb.get(window._fb.ref(db, `accounts/${name}`))).exists()) { err.textContent = 'Имя занято'; return; }
-      await window._fb.set(window._fb.ref(db, `accounts/${name}`), { passHash: await sha256(pass) });
+      if ((await get(ref(db, `accounts/${name}`))).exists()) { err.textContent = 'Имя занято'; return; }
+      await set(ref(db, `accounts/${name}`), { passHash: await sha256(pass) });
       document.getElementById('newAccName').value = '';
       document.getElementById('newAccPass').value = '';
       await renderAccountList();
@@ -461,33 +459,21 @@
 
     window.deleteAccount = async function(name) {
       if (!db || name === ADMIN_NAME || !confirm(`Удалить «${name}»?`)) return;
-      await window._fb.remove(window._fb.ref(db, `accounts/${name}`));
+      await remove(ref(db, `accounts/${name}`));
       await renderAccountList();
     };
 
     function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-    // ====== ИНИЦИАЛИЗАЦИЯ FIREBASE (обычные скрипты уже загружены) ======
+    // ==== ИНИЦИАЛИЗАЦИЯ FIREBASE (без динамических импортов) ====
     async function initFirebase() {
-      firebase.initializeApp(getFirebaseConfig());
-      db = firebase.database();
-      // Создаём объект-помощник с методами, аналогичными твоему window._fb
-      window._fb = {
-        ref: (dbRef, path) => firebase.database().ref(path),  // если dbRef не используется, просто ref(path)
-        set: (ref, data) => ref.set(data),
-        get: (ref) => ref.get(),
-        onValue: (ref, callback) => ref.on('value', callback),
-        off: (ref) => ref.off(),
-        push: (ref, data) => ref.push(data),
-        remove: (ref) => ref.remove(),
-        onDisconnect: (ref) => ref.onDisconnect()
-      };
+      const app = initializeApp(getFirebaseConfig());
+      db = getDatabase(app);
+      // Вспомогательный объект больше не нужен – используем прямые функции
+      window._fb = { ref, set, get, onValue, off, push, remove, onDisconnect };
     }
 
-    // ВАЖНО: все вызовы типа window._fb.ref(db, ...) теперь будут работать,
-    // потому что ref(path) использует firebase.database().ref(path)
-
-    // ─── ADAPTIVE AUDIO STREAM (максимальное шумоподавление) ─────────────────
+    // ─── ADAPTIVE AUDIO STREAM ─────────────────────────────────────────────────
     async function getAudioStream() {
       const attempts = [
         { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false },
@@ -542,7 +528,7 @@
       const av = document.getElementById('peerAvatar');
       let avatarUrl = null;
       if (db && name !== ADMIN_NAME) {
-        try { const snap = await window._fb.get(window._fb.ref(db, `accounts/${name}/avatar`)); if (snap.exists()) avatarUrl = snap.val(); } catch(e) {}
+        try { const snap = await get(ref(db, `accounts/${name}/avatar`)); if (snap.exists()) avatarUrl = snap.val(); } catch(e) {}
       }
       av.innerHTML = avatarUrl
         ? `<img src="${avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%" />`
@@ -550,10 +536,10 @@
     }
 
     async function startWebRTC(roomName) {
-      roomRef = window._fb.ref(db, `rooms/${roomName}`);
+      roomRef = ref(db, `rooms/${roomName}`);
       _signalingBusy = false; _addedCandidates = new Set();
 
-      window._fb.onValue(roomRef, async (snap) => {
+      onValue(roomRef, async (snap) => {
         if (hasLeft) return;
         const data = snap.val();
         
@@ -603,14 +589,14 @@
       pc = buildPC(roomName, true);
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      const rRef = window._fb.ref(db, `rooms/${roomName}`);
-      await window._fb.set(rRef, { 
+      const rRef = ref(db, `rooms/${roomName}`);
+      await set(rRef, { 
         offer: { type: offer.type, sdp: offer.sdp }, 
         callerName: currentUser.name,
         callerMicMuted: micMuted,
         callerDeafened: deafened
       });
-      window._fb.onDisconnect(rRef).remove();
+      onDisconnect(rRef).remove();
     }
 
     async function createAnswer(roomName, offerData) {
@@ -619,10 +605,10 @@
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       
-      await window._fb.set(window._fb.ref(db, `rooms/${roomName}/answer`), { type: answer.type, sdp: answer.sdp });
-      await window._fb.set(window._fb.ref(db, `rooms/${roomName}/calleeName`), currentUser.name);
-      await window._fb.set(window._fb.ref(db, `rooms/${roomName}/calleeMicMuted`), micMuted);
-      await window._fb.set(window._fb.ref(db, `rooms/${roomName}/calleeDeafened`), deafened);
+      await set(ref(db, `rooms/${roomName}/answer`), { type: answer.type, sdp: answer.sdp });
+      await set(ref(db, `rooms/${roomName}/calleeName`), currentUser.name);
+      await set(ref(db, `rooms/${roomName}/calleeMicMuted`), micMuted);
+      await set(ref(db, `rooms/${roomName}/calleeDeafened`), deafened);
     }
 
     function buildPC(roomName, asInitiator) {
@@ -637,7 +623,7 @@
       };
       connection.onicecandidate = (e) => {
         if (e.candidate) {
-          window._fb.push(window._fb.ref(db, `rooms/${roomName}/${asInitiator ? 'iceCaller' : 'iceCallee'}`), {
+          push(ref(db, `rooms/${roomName}/${asInitiator ? 'iceCaller' : 'iceCallee'}`), {
             candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex
           });
         }
@@ -669,7 +655,7 @@
 
     window.leaveCall = async function() {
       hasLeft = true; inCall = false; isInitiator = false;
-      if (roomRef) { try { window._fb.off(roomRef); } catch(e){} }
+      if (roomRef) { try { off(roomRef); } catch(e){} }
       roomRef = null;
       if (pc) { pc.close(); pc = null; }
       if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream = null; }
@@ -735,11 +721,22 @@
     function syncMyStatus() {
       if (!db || !roomRef || !inCall) return;
       const roleKey = isInitiator ? 'caller' : 'callee';
-      window._fb.set(window._fb.ref(db, `rooms/${$roomInput.value}/${roleKey}MicMuted`), micMuted);
-      window._fb.set(window._fb.ref(db, `rooms/${$roomInput.value}/${roleKey}Deafened`), deafened);
+      set(ref(db, `rooms/${$roomInput.value}/${roleKey}MicMuted`), micMuted);
+      set(ref(db, `rooms/${$roomInput.value}/${roleKey}Deafened`), deafened);
     }
 
-    window.loadAvatar = async function(input) { /* ... без изменений, как в твоём коде ... */ };
+    window.loadAvatar = async function(input) {
+      const file = input.files[0]; if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const b64 = e.target.result;
+        document.getElementById('myAvatar').innerHTML = `<img src="${b64}" /><div class="avatar-upload-hint">📷</div>`;
+        localStorage.setItem(avatarKey(), b64); renderTopbar();
+        if (db && currentUser && !currentUser.isAdmin)
+          try { await set(ref(db, `accounts/${currentUser.name}/avatar`), b64); } catch(ex) {}
+      };
+      reader.readAsDataURL(file);
+    };
 
     (function() {
       try {
@@ -752,7 +749,7 @@
       } catch(e) {}
     })();
 
-    // ─── SPEAKING DETECTION (только анимация аватара) ─────────────────────────
+    // ─── SPEAKING DETECTION ───────────────────────────────────────────────────
     let _audioCtxVis = null, _analyserLocal = null, _analyserRemote = null;
     let _spkIntLocal = null, _spkIntRemote = null;
 
