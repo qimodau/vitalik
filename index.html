@@ -305,7 +305,7 @@
       const urlRoom = new URLSearchParams(location.search).get('room');
       if (urlRoom) $roomInput.value = urlRoom;
       await initFirebase();
-      const saved = sessionStorage.getItem('voiceUser');
+      const saved = localStorage.getItem('voiceUser');
       if (saved) { try { currentUser = JSON.parse(saved); onLoggedIn(); } catch { showLogin(); } }
       else showLogin();
     });
@@ -322,11 +322,11 @@
       $joinBtn.className = 'btn-join primary';
       setStatus('idle', `Привет, ${currentUser.name}!`);
       const av = document.getElementById('myAvatar');
-      let savedAvatar = localStorage.getItem('voiceAvatar');
+      let savedAvatar = localStorage.getItem(avatarKey());
       if (!savedAvatar && db && currentUser && !currentUser.isAdmin) {
         try {
           const snap = await window._fb.get(window._fb.ref(db, `accounts/${currentUser.name}/avatar`));
-          if (snap.exists()) { savedAvatar = snap.val(); localStorage.setItem('voiceAvatar', savedAvatar); }
+          if (snap.exists()) { savedAvatar = snap.val(); localStorage.setItem(avatarKey(), savedAvatar); }
         } catch(e) {}
       }
       if (savedAvatar) av.innerHTML = `<img src="${savedAvatar}" /><div class="avatar-upload-hint">📷</div>`;
@@ -336,7 +336,7 @@
     }
 
     function getTopbarAvatarHtml() {
-      const saved = localStorage.getItem('voiceAvatar');
+      const saved = localStorage.getItem(avatarKey());
       if (saved) return `<div style="width:24px;height:24px;border-radius:50%;overflow:hidden;flex-shrink:0"><img src="${saved}" style="width:100%;height:100%;object-fit:cover"/></div>`;
       return `<div class="user-avatar-sm">${currentUser.name.slice(0,2).toUpperCase()}</div>`;
     }
@@ -362,19 +362,19 @@
       const hash = await sha256(pass);
       if (name === ADMIN_NAME && hash === ADMIN_PASS_HASH) {
         currentUser = { name: ADMIN_NAME, isAdmin: true };
-        sessionStorage.setItem('voiceUser', JSON.stringify(currentUser));
+        localStorage.setItem('voiceUser', JSON.stringify(currentUser));
         onLoggedIn(); return;
       }
       if (!db) { err.textContent = 'Firebase не настроен'; return; }
       const snap = await window._fb.get(window._fb.ref(db, `accounts/${name}`));
       if (!snap.exists() || snap.val().passHash !== hash) { err.textContent = 'Неверное имя или пароль'; return; }
       currentUser = { name, isAdmin: false };
-      sessionStorage.setItem('voiceUser', JSON.stringify(currentUser));
+      localStorage.setItem('voiceUser', JSON.stringify(currentUser));
       onLoggedIn();
     };
 
     window.doLogout = function() {
-      sessionStorage.removeItem('voiceUser'); currentUser = null;
+      localStorage.removeItem('voiceUser'); currentUser = null;
       $topbarRight.innerHTML = ''; $joinBtn.style.display = 'none';
       $controls.classList.remove('visible'); $avatars.classList.remove('visible');
       if (inCall) leaveCall();
@@ -382,13 +382,19 @@
       closeManager(); closeAvatarPanel(); showLogin();
     };
 
+    function avatarKey() {
+     return currentUser
+       ? `voiceAvatar_${currentUser.name}`
+       : 'voiceAvatar_guest';
+    }
+
     document.getElementById('loginName').addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('loginPass').focus(); });
     document.getElementById('loginPass').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
 
     window.openAvatarPanel = function() {
       if (!currentUser) return;
       const prev = document.getElementById('panelAvatarPreview');
-      const saved = localStorage.getItem('voiceAvatar');
+      const saved = localStorage.getItem(avatarKey());
       if (saved) prev.innerHTML = `<img src="${saved}" style="width:100%;height:100%;object-fit:cover">`;
       else prev.textContent = currentUser.name.slice(0,2).toUpperCase();
       $avatarPanelOverlay.classList.add('open');
@@ -401,7 +407,7 @@
       const reader = new FileReader();
       reader.onload = async (e) => {
         const b64 = e.target.result;
-        localStorage.setItem('voiceAvatar', b64);
+        localStorage.setItem(avatarKey(), b64);
         document.getElementById('panelAvatarPreview').innerHTML = `<img src="${b64}" style="width:100%;height:100%;object-fit:cover">`;
         renderTopbar();
         document.getElementById('myAvatar').innerHTML = `<img src="${b64}" /><div class="avatar-upload-hint">📷</div>`;
@@ -412,7 +418,7 @@
     };
 
     window.removePanelAvatar = async function() {
-      localStorage.removeItem('voiceAvatar');
+      localStorage.removeItem(avatarKey());
       document.getElementById('panelAvatarPreview').textContent = currentUser.name.slice(0,2).toUpperCase();
       if (db && currentUser && !currentUser.isAdmin)
         try { await window._fb.remove(window._fb.ref(db, `accounts/${currentUser.name}/avatar`)); } catch(ex) {}
@@ -608,6 +614,7 @@
 
     // ─── CALL ─────────────────────────────────────────────────────────────────
     window.joinCall = async function() {
+      hasLeft = false;
       if (!currentUser || !db) { showError('Firebase инициализируется, подожди секунду.'); return; }
       clearError();
       const roomName = $roomInput.value.trim().replace(/\s+/g,'_').replace(/[^\w\u0400-\u04FF-]/g,'') || 'комната';
@@ -738,7 +745,7 @@
 
     window.leaveCall = async function() {
       hasLeft = true; inCall = false; isInitiator = false;
-      if (roomRef && window._fb) { try { window._fb.off(roomRef); } catch(e){} try { await window._fb.remove(roomRef); } catch(e){} }
+      if (roomRef && window._fb) { try { window._fb.off(roomRef); } catch(e){} }
       roomRef = null;
       if (pc) { pc.close(); pc = null; }
       if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream = null; }
@@ -747,7 +754,7 @@
       $remoteAudio.srcObject = null;
       $controls.classList.remove('visible'); $avatars.classList.remove('visible');
       $peerAvatar.innerHTML = '<span id="peerAvatarText">👤</span>';
-      $peerName.textContent = 'Собеседник';
+      $peerName.textContent = 'не собеседник';
       setStatus('idle', 'Ты вышел из звонка'); setCallUI(false); stopSpeakingDetection();
       micMuted = false; deafened = false; updateMicUI(); updateDeafUI();
       $joinBtn.disabled = false; $joinBtn.style.display = '';
@@ -772,7 +779,7 @@
       reader.onload = async (e) => {
         const b64 = e.target.result;
         document.getElementById('myAvatar').innerHTML = `<img src="${b64}" /><div class="avatar-upload-hint">📷</div>`;
-        localStorage.setItem('voiceAvatar', b64); renderTopbar();
+        localStorage.setItem(avatarKey(), b64); renderTopbar();
         if (db && currentUser && !currentUser.isAdmin)
           try { await window._fb.set(window._fb.ref(db, `accounts/${currentUser.name}/avatar`), b64); } catch(ex) {}
       };
@@ -781,7 +788,7 @@
 
     (function() {
       try {
-        const saved = localStorage.getItem('voiceAvatar');
+        const saved = localStorage.getItem(avatarKey());
         if (saved) {
           const av = document.getElementById('myAvatar');
           av.innerHTML = `<img src="${saved}" /><div class="avatar-upload-hint">📷</div>`;
