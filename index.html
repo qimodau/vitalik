@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>виталик</title>
   <style>
-    /* ─── Твой CSS (без изменений) ─── */
+    /* Твой CSS полностью сохранён */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
       --bg: #0e0e10; --surface: #18181b; --surface2: #222228;
@@ -222,12 +222,10 @@
 
   <audio id="remoteAudio" autoplay playsinline></audio>
 
-  <!-- Статический импорт Firebase модулей (без CORS-ошибок на GitHub Pages) -->
   <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
     import { getDatabase, ref, set, get, onValue, off, push, remove, onDisconnect } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
 
-    // ─── FIREBASE CONFIG ──────────────────────────────────────────────────────
     const firebaseConfig = {
       apiKey: "AIzaSyDQpYp4679D5f4K30xSL46bSFXZq3XK_Ks",
       authDomain: "vitalik-fcd7b.firebaseapp.com",
@@ -241,7 +239,6 @@
     const ADMIN_NAME      = 'qamodik';
     const ADMIN_PASS_HASH = '4d6fa21b90fd93c7043ada4c380872982ed81009bd8f93a4aced7db00600014b';
 
-    // ─── ICE: STUN + TURN ───────────────────────────────────────────────────
     const ICE_SERVERS = {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -257,13 +254,11 @@
       ]
     };
 
-    // ─── STATE ────────────────────────────────────────────────────────────────
     let db = null, pc = null, localStream = null, remoteStream = null;
     let roomRef = null, isInitiator = false;
     let micMuted = false, deafened = false, inCall = false, hasLeft = false;
     let currentUser = null;
 
-    // DOM
     const $joinBtn      = document.getElementById('joinBtn');
     const $controls     = document.getElementById('controls');
     const $statusText   = document.getElementById('statusText');
@@ -294,7 +289,6 @@
     window.addEventListener('load', async () => {
       const urlRoom = new URLSearchParams(location.search).get('room');
       if (urlRoom) $roomInput.value = urlRoom;
-      // Инициализируем Firebase
       const app = initializeApp(firebaseConfig);
       db = getDatabase(app);
       const saved = localStorage.getItem('voiceUser');
@@ -315,7 +309,7 @@
       setStatus('idle', `Привет, ${currentUser.name}!`);
       const av = $myAvatar;
       let savedAvatar = localStorage.getItem(avatarKey());
-      if (!savedAvatar && db && currentUser && !currentUser.isAdmin) {
+      if (!savedAvatar && db && currentUser) {
         try {
           const snap = await get(ref(db, `accounts/${currentUser.name}/avatar`));
           if (snap.exists()) { savedAvatar = snap.val(); localStorage.setItem(avatarKey(), savedAvatar); }
@@ -401,7 +395,7 @@
         document.getElementById('panelAvatarPreview').innerHTML = `<img src="${b64}" style="width:100%;height:100%;object-fit:cover">`;
         renderTopbar();
         $myAvatar.innerHTML = `<img src="${b64}" /><div class="avatar-upload-hint">📷</div>`;
-        if (db && currentUser && !currentUser.isAdmin)
+        if (db && currentUser)
           try { await set(ref(db, `accounts/${currentUser.name}/avatar`), b64); } catch(ex) {}
       };
       reader.readAsDataURL(file);
@@ -410,7 +404,7 @@
     window.removePanelAvatar = async function() {
       localStorage.removeItem(avatarKey());
       document.getElementById('panelAvatarPreview').textContent = currentUser.name.slice(0,2).toUpperCase();
-      if (db && currentUser && !currentUser.isAdmin)
+      if (db && currentUser)
         try { await remove(ref(db, `accounts/${currentUser.name}/avatar`)); } catch(ex) {}
       renderTopbar();
       $myAvatar.innerHTML = `<span id="myAvatarText">${currentUser.name.slice(0,2).toUpperCase()}</span><div class="avatar-upload-hint">📷</div>`;
@@ -464,7 +458,6 @@
 
     function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-    // ─── ADAPTIVE AUDIO STREAM ─────────────────────────────────────────────────
     async function getAudioStream() {
       const attempts = [
         { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false },
@@ -472,13 +465,19 @@
         { audio: { echoCancellation: true }, video: false },
         { audio: true, video: false }
       ];
+      let lastError = null;
       for (const constraints of attempts) {
-        try { return await navigator.mediaDevices.getUserMedia(constraints); } catch (e) { continue; }
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia(constraints);
+          return stream;
+        } catch (e) {
+          lastError = e;
+          continue;
+        }
       }
-      throw new Error('Микрофон недоступен');
+      throw lastError || new Error('Микрофон недоступен');
     }
 
-    // ─── CALL & AUDIO PIPELINE ────────────────────────────────────────────────
     window.joinCall = async function() {
       hasLeft = false;
       if (!currentUser || !db) { showError('Firebase инициализируется, подожди секунду.'); return; }
@@ -500,6 +499,7 @@
         let msg = 'Нет доступа к микрофону. ';
         if (e.name === 'NotAllowedError') msg += 'Разреши доступ в настройках браузера.';
         else if (e.name === 'NotFoundError') msg += 'Микрофон не найден.';
+        else if (e.name === 'NotReadableError') msg += 'Микрофон занят или неисправен.';
         else msg += e.message;
         showError(msg);
         $joinBtn.disabled = false;
@@ -518,7 +518,7 @@
       $peerName.textContent = name;
       const av = $peerAvatar;
       let avatarUrl = null;
-      if (db && name !== ADMIN_NAME) {
+      if (db) {
         try {
           const snap = await get(ref(db, `accounts/${name}/avatar`));
           if (snap.exists()) avatarUrl = snap.val();
@@ -669,7 +669,6 @@
       $joinBtn.textContent = 'Войти обратно'; $joinBtn.className = 'btn-join secondary';
     };
 
-    // ─── MICROPHONE / DEAF ────────────────────────────────────────────────────
     window.toggleMic = function() {
       if (!localStream) return;
       micMuted = !micMuted;
@@ -729,7 +728,7 @@
         const b64 = e.target.result;
         $myAvatar.innerHTML = `<img src="${b64}" /><div class="avatar-upload-hint">📷</div>`;
         localStorage.setItem(avatarKey(), b64); renderTopbar();
-        if (db && currentUser && !currentUser.isAdmin)
+        if (db && currentUser)
           try { await set(ref(db, `accounts/${currentUser.name}/avatar`), b64); } catch(ex) {}
       };
       reader.readAsDataURL(file);
@@ -746,7 +745,6 @@
       } catch(e) {}
     })();
 
-    // ─── SPEAKING DETECTION ───────────────────────────────────────────────────
     let _audioCtxVis = null, _analyserLocal = null, _analyserRemote = null;
     let _spkIntLocal = null, _spkIntRemote = null;
 
