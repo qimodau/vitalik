@@ -261,17 +261,18 @@
     // ─── RNNOISE ЧЕРЕЗ SCRIPTPROCESSOR (УНИВЕРСАЛЬНО) ──────────────────────
     let _audioCtxNS = null;
     let _scriptNode = null;
-    let _rnnoiseInstance = null;
+    let _rnState = null;      // указатель на состояние RNNoise
+    let _rnModule = null;     // модуль WASM
 
     async function initNoiseSuppression(localStream) {
       try {
-        // Загружаем библиотеку через <script> (без import, чтобы избежать CORS)
-        if (typeof ShiguredoRnnoiseWasm === 'undefined') {
-          await loadScript('https://unpkg.com/@shiguredo/rnnoise-wasm@2023.1.0/dist/rnnoise-wasm.js');
-          // Ждём появления глобального объекта
+        // Загружаем @jitsi/rnnoise-wasm (синхронная версия, не модуль)
+        if (typeof createRNNWasmModuleSync === 'undefined') {
+          await loadScript('https://cdn.jsdelivr.net/npm/@jitsi/rnnoise-wasm@0.0.3/dist/rnnoise-sync.js');
+          // Ждём появления глобальной функции
           await new Promise((resolve) => {
             const check = setInterval(() => {
-              if (typeof ShiguredoRnnoiseWasm !== 'undefined') {
+              if (typeof createRNNWasmModuleSync !== 'undefined') {
                 clearInterval(check);
                 resolve();
               }
@@ -279,6 +280,10 @@
             setTimeout(() => clearInterval(check), 5000);
           });
         }
+
+        // Создаём модуль WASM (синхронно)
+        _rnModule = await createRNNWasmModuleSync();
+        _rnState = _rnModule.newState();
 
         // Создаём AudioContext строго на 48000 Гц
         _audioCtxNS = new (window.AudioContext || window.webkitAudioContext)({
@@ -289,24 +294,21 @@
           await _audioCtxNS.resume();
         }
 
-        // Создаём экземпляр RNNoise
-        _rnnoiseInstance = new ShiguredoRnnoiseWasm.RNNoiseWasm();
-
         // Узлы обработки
         const source = _audioCtxNS.createMediaStreamSource(localStream);
         const destination = _audioCtxNS.createMediaStreamDestination();
 
-        // ScriptProcessorNode с буфером 4096
-        const bufferSize = 4096;
+        // ScriptProcessorNode с буфером 2048 (меньше задержка)
+        const bufferSize = 2048;
         _scriptNode = _audioCtxNS.createScriptProcessor(bufferSize, 1, 1);
+
+        const FRAME_SIZE = 480;
 
         _scriptNode.onaudioprocess = (event) => {
           const input = event.inputBuffer.getChannelData(0);
           const output = event.outputBuffer.getChannelData(0);
 
-          const FRAME_SIZE = 480;
           let offset = 0;
-
           while (offset + FRAME_SIZE <= input.length) {
             const frame = input.subarray(offset, offset + FRAME_SIZE);
 
@@ -317,17 +319,17 @@
               int16Frame[i] = s * 32767;
             }
 
-            // Обработка
-            const processedInt16 = _rnnoiseInstance.processFrame(int16Frame);
+            // Обработка через RNNoise (возвращает Int16)
+            const processed = _rnModule.processFrame(_rnState, int16Frame);
 
             // Int16 -> Float32
             for (let i = 0; i < FRAME_SIZE; i++) {
-              output[offset + i] = processedInt16[i] / 32768;
+              output[offset + i] = processed[i] / 32768;
             }
             offset += FRAME_SIZE;
           }
 
-          // Остатки (меньше 480) копируем без обработки
+          // Остатки (<480) копируем без обработки
           if (offset < input.length) {
             output.set(input.subarray(offset), offset);
           }
@@ -353,10 +355,11 @@
         try { _audioCtxNS.close(); } catch(e) {}
         _audioCtxNS = null;
       }
-      if (_rnnoiseInstance) {
-        try { _rnnoiseInstance.close(); } catch(e) {}
-        _rnnoiseInstance = null;
+      if (_rnState && _rnModule) {
+        try { _rnModule.deleteState(_rnState); } catch(e) {}
+        _rnState = null;
       }
+      _rnModule = null;
     }
 
     // ─── STATE ────────────────────────────────────────────────────────────────
