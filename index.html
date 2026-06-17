@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>виталик</title>
   <style>
-    /* Твой CSS полностью сохранён */
+    /* Твой полный CSS (без изменений) */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
       --bg: #0e0e10; --surface: #18181b; --surface2: #222228;
@@ -259,27 +259,28 @@
     let micMuted = false, deafened = false, inCall = false, hasLeft = false;
     let currentUser = null;
 
-    const $joinBtn      = document.getElementById('joinBtn');
-    const $controls     = document.getElementById('controls');
-    const $statusText   = document.getElementById('statusText');
-    const $dot          = document.getElementById('dot');
-    const $errorBox     = document.getElementById('errorBox');
-    const $avatars      = document.getElementById('avatars');
-    const $micBtn       = document.getElementById('micBtn');
-    const $micIcon      = document.getElementById('micIcon');
-    const $micLabel     = document.getElementById('micLabel');
-    const $deafBtn      = document.getElementById('deafBtn');
-    const $deafIcon     = document.getElementById('deafIcon');
-    const $deafLabel    = document.getElementById('deafLabel');
-    const $remoteAudio  = document.getElementById('remoteAudio');
-    const $myAvatar     = document.getElementById('myAvatar');
-    const $peerAvatar   = document.getElementById('peerAvatar');
-    const $peerName     = document.getElementById('peerName');
-    const $roomInput    = document.getElementById('roomInput');
-    const $topbarRight  = document.getElementById('topbarRight');
-    const $loginOverlay       = document.getElementById('loginOverlay');
-    const $managerOverlay     = document.getElementById('managerOverlay');
-    const $avatarPanelOverlay = document.getElementById('avatarPanelOverlay');
+    const $ = (id) => document.getElementById(id);
+    const $joinBtn      = $('joinBtn');
+    const $controls     = $('controls');
+    const $statusText   = $('statusText');
+    const $dot          = $('dot');
+    const $errorBox     = $('errorBox');
+    const $avatars      = $('avatars');
+    const $micBtn       = $('micBtn');
+    const $micIcon      = $('micIcon');
+    const $micLabel     = $('micLabel');
+    const $deafBtn      = $('deafBtn');
+    const $deafIcon     = $('deafIcon');
+    const $deafLabel    = $('deafLabel');
+    const $remoteAudio  = $('remoteAudio');
+    const $myAvatar     = $('myAvatar');
+    const $peerAvatar   = $('peerAvatar');
+    const $peerName     = $('peerName');
+    const $roomInput    = $('roomInput');
+    const $topbarRight  = $('topbarRight');
+    const $loginOverlay = $('loginOverlay');
+    const $managerOverlay = $('managerOverlay');
+    const $avatarPanelOverlay = $('avatarPanelOverlay');
 
     async function sha256(str) {
       const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
@@ -458,12 +459,13 @@
 
     function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+    // Адаптивный микрофон (мягкие constraints для телефона)
     async function getAudioStream() {
       const attempts = [
         { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false },
         { audio: { echoCancellation: true, noiseSuppression: true }, video: false },
         { audio: { echoCancellation: true }, video: false },
-        { audio: true, video: false }
+        { audio: true, video: false }  // самый простой
       ];
       let lastError = null;
       for (const constraints of attempts) {
@@ -487,6 +489,7 @@
       setStatus('waiting', 'Подключаемся...');
       $joinBtn.disabled = true;
 
+      // Пробуждаем аудио (важно для мобильных)
       $remoteAudio.load();
       $remoteAudio.play().catch(() => {});
 
@@ -495,11 +498,11 @@
         micMuted = false;
         localStream.getAudioTracks().forEach(t => { t.enabled = true; });
       } catch(e) {
-        console.warn(e);
+        console.error(e);
         let msg = 'Нет доступа к микрофону. ';
         if (e.name === 'NotAllowedError') msg += 'Разреши доступ в настройках браузера.';
         else if (e.name === 'NotFoundError') msg += 'Микрофон не найден.';
-        else if (e.name === 'NotReadableError') msg += 'Микрофон занят или неисправен.';
+        else if (e.name === 'NotReadableError') msg += 'Микрофон занят.';
         else msg += e.message;
         showError(msg);
         $joinBtn.disabled = false;
@@ -533,6 +536,11 @@
       roomRef = ref(db, `rooms/${roomName}`);
       _signalingBusy = false;
       _addedCandidates = new Set();
+
+      // При уходе очищаем комнату
+      window.addEventListener('beforeunload', () => {
+        if (roomRef) remove(roomRef);
+      });
 
       onValue(roomRef, async (snap) => {
         if (hasLeft) return;
@@ -637,6 +645,7 @@
       $avatars.classList.add('visible'); $controls.classList.add('visible');
       $joinBtn.style.display = 'none'; setCallUI(true);
       syncMyStatus();
+      // Ещё раз принудительно воспроизводим (обход политики)
       $remoteAudio.play().catch(() => {});
       startSpeakingDetection();
     }
@@ -652,7 +661,10 @@
 
     window.leaveCall = async function() {
       hasLeft = true; inCall = false; isInitiator = false;
-      if (roomRef) { try { off(roomRef); } catch(e){} }
+      if (roomRef) { 
+        try { off(roomRef); } catch(e){} 
+        try { await remove(roomRef); } catch(e){} // очищаем комнату при выходе
+      }
       roomRef = null;
       if (pc) { pc.close(); pc = null; }
       if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream = null; }
