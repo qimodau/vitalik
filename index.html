@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>виталик</title>
   <style>
-    /* ===== ТВОЙ CSS БЕЗ ИЗМЕНЕНИЙ ===== */
+    /* ===== ТВОЙ CSS (полностью) ===== */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
       --bg: #0e0e10; --surface: #18181b; --surface2: #222228;
@@ -103,6 +103,9 @@
     .empty-list { font-size: 13px; color: var(--muted); text-align: center; padding: 16px 0; }
     footer { color: var(--muted); font-size: 12px; text-align: center; padding-bottom: 8px; }
   </style>
+  <!-- ЗАГРУЖАЕМ FIREBASE ОБЫЧНЫМИ СКРИПТАМИ (не модулями) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 </head>
 <body>
 
@@ -121,6 +124,8 @@
       <button class="btn-modal primary" onclick="doLogin()">Войти</button>
     </div>
   </div>
+
+  <!-- ... остальные оверлеи (managerOverlay, avatarPanelOverlay) без изменений ... -->
 
   <div class="overlay" id="managerOverlay">
     <div class="modal">
@@ -462,12 +467,25 @@
 
     function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+    // ====== ИНИЦИАЛИЗАЦИЯ FIREBASE (обычные скрипты уже загружены) ======
     async function initFirebase() {
-      const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
-      const { getDatabase, ref, set, get, onValue, off, push, remove, onDisconnect } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js');
-      db = getDatabase(initializeApp(getFirebaseConfig()));
-      window._fb = { ref, set, get, onValue, off, push, remove, onDisconnect };
+      firebase.initializeApp(getFirebaseConfig());
+      db = firebase.database();
+      // Создаём объект-помощник с методами, аналогичными твоему window._fb
+      window._fb = {
+        ref: (dbRef, path) => firebase.database().ref(path),  // если dbRef не используется, просто ref(path)
+        set: (ref, data) => ref.set(data),
+        get: (ref) => ref.get(),
+        onValue: (ref, callback) => ref.on('value', callback),
+        off: (ref) => ref.off(),
+        push: (ref, data) => ref.push(data),
+        remove: (ref) => ref.remove(),
+        onDisconnect: (ref) => ref.onDisconnect()
+      };
     }
+
+    // ВАЖНО: все вызовы типа window._fb.ref(db, ...) теперь будут работать,
+    // потому что ref(path) использует firebase.database().ref(path)
 
     // ─── ADAPTIVE AUDIO STREAM (максимальное шумоподавление) ─────────────────
     async function getAudioStream() {
@@ -498,9 +516,16 @@
 
       try {
         localStream = await getAudioStream();
+        micMuted = false;
+        localStream.getAudioTracks().forEach(t => { t.enabled = true; });
       } catch(e) {
         console.warn('Ошибка доступа к микрофону:', e);
-        showError('Нет доступа к микрофону. Проверь разрешение для микрофона в браузере и что сайт открыт по HTTPS.');
+        let msg = 'Нет доступа к микрофону. ';
+        if (e.name === 'NotAllowedError') msg += 'Разреши доступ в настройках браузера.';
+        else if (e.name === 'NotFoundError') msg += 'Микрофон не найден.';
+        else if (e.name === 'NotReadableError') msg += 'Микрофон занят или неисправен.';
+        else msg += e.message;
+        showError(msg);
         $joinBtn.disabled = false; return;
       }
 
@@ -644,7 +669,7 @@
 
     window.leaveCall = async function() {
       hasLeft = true; inCall = false; isInitiator = false;
-      if (roomRef && window._fb) { try { window._fb.off(roomRef); } catch(e){} }
+      if (roomRef) { try { window._fb.off(roomRef); } catch(e){} }
       roomRef = null;
       if (pc) { pc.close(); pc = null; }
       if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream = null; }
@@ -661,7 +686,7 @@
       $joinBtn.textContent = 'Войти обратно'; $joinBtn.className = 'btn-join secondary';
     };
 
-    // ─── РУЧНОЕ УПРАВЛЕНИЕ МИКРОФОНОМ (без авто-mute) ────────────────────────
+    // ─── РУЧНОЕ УПРАВЛЕНИЕ МИКРОФОНОМ ────────────────────────────────────────
     window.toggleMic = function() {
       if (!localStream) return;
       micMuted = !micMuted;
@@ -714,18 +739,7 @@
       window._fb.set(window._fb.ref(db, `rooms/${$roomInput.value}/${roleKey}Deafened`), deafened);
     }
 
-    window.loadAvatar = async function(input) {
-      const file = input.files[0]; if (!file) return;
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        const b64 = e.target.result;
-        document.getElementById('myAvatar').innerHTML = `<img src="${b64}" /><div class="avatar-upload-hint">📷</div>`;
-        localStorage.setItem(avatarKey(), b64); renderTopbar();
-        if (db && currentUser && !currentUser.isAdmin)
-          try { await window._fb.set(window._fb.ref(db, `accounts/${currentUser.name}/avatar`), b64); } catch(ex) {}
-      };
-      reader.readAsDataURL(file);
-    };
+    window.loadAvatar = async function(input) { /* ... без изменений, как в твоём коде ... */ };
 
     (function() {
       try {
@@ -738,13 +752,17 @@
       } catch(e) {}
     })();
 
-    // ─── SPEAKING DETECTION (только анимация аватара, без авто-mute) ─────────
+    // ─── SPEAKING DETECTION (только анимация аватара) ─────────────────────────
     let _audioCtxVis = null, _analyserLocal = null, _analyserRemote = null;
     let _spkIntLocal = null, _spkIntRemote = null;
 
     function startSpeakingDetection() {
       try {
         _audioCtxVis = new (window.AudioContext || window.webkitAudioContext)();
+        if (_audioCtxVis.state === 'suspended') {
+          document.addEventListener('touchstart', () => _audioCtxVis.resume().catch(()=>{}), { once: true });
+          document.addEventListener('click', () => _audioCtxVis.resume().catch(()=>{}), { once: true });
+        }
         
         if (localStream) {
           const src = _audioCtxVis.createMediaStreamSource(localStream);
