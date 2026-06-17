@@ -483,58 +483,106 @@
       $joinBtn.disabled = true;
 
       try {
-        const audioConstraints = {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 1,
-          sampleRate: 48000
-        };
-        const rawStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
+        // ===== СОЗДАЁМ AudioContext МАКСИМАЛЬНО РАНО, ВНУТРИ ЖЕСТА ПОЛЬЗОВАТЕЛЯ =====
+        // (на телефонах, особенно iOS, AudioContext не "разблокируется" если резюмировать его
+        //  слишком поздно после await — звук тогда просто не идёт, хотя ошибок нет)
+        let audioCtx = null;
+        try {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          if (audioCtx.state === 'suspended') await audioCtx.resume();
+        } catch (ctxErr) { audioCtx = null; }
+
+        // ===== ПРОГРЕССИВНЫЙ FALLBACK ОГРАНИЧЕНИЙ МИКРОФОНА ДЛЯ СОВМЕСТИМОСТИ С ТЕЛЕФОНАМИ =====
+        // Жёсткие constraints (точный sampleRate/channelCount) на части телефонов вызывают
+        // OverconstrainedError, и микрофон вообще не запускается. Пробуем от самых
+        // продвинутых ограничений к самым простым, пока что-то не сработает.
+        const constraintSets = [
+          {
+            echoCancellation: true, noiseSuppression: true, autoGainControl: true,
+            channelCount: { ideal: 1 }, sampleRate: { ideal: 48000 },
+            // Нестандартные, но широко поддерживаемые в Chromium constraints —
+            // включают второй, более агрессивный уровень шумоподавления/AGC (NS2/AGC2)
+            googNoiseSuppression: true, googNoiseSuppression2: true,
+            googEchoCancellation: true, googEchoCancellation2: true,
+            googAutoGainControl: true, googAutoGainControl2: true,
+            googHighpassFilter: true, googTypingNoiseDetection: true
+          },
+          { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          true
+        ];
+
+        let rawStream = null, lastErr = null;
+        for (const constraints of constraintSets) {
+          try { rawStream = await navigator.mediaDevices.getUserMedia({ audio: constraints, video: false }); break; }
+          catch (err) { lastErr = err; }
+        }
+        if (!rawStream) throw lastErr || new Error('Микрофон недоступен');
 
         // ===== БЕЗОПАСНЫЙ И ГИБРИДНЫЙ АУДИОПАЙПЛАЙН С FALLBACK ДЛЯ ТЕЛЕФОНОВ =====
         try {
-          const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-          if (audioCtx.state === 'suspended') {
-            await audioCtx.resume();
-          }
+          if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          if (audioCtx.state === 'suspended') await audioCtx.resume();
+          if (audioCtx.state !== 'running') throw new Error('AudioContext не запустился (заблокирован браузером)');
+
           const source = audioCtx.createMediaStreamSource(rawStream);
           const destination = audioCtx.createMediaStreamDestination();
 
-          const lowpass = audioCtx.createBiquadFilter();
-          lowpass.type = 'lowpass';
-          lowpass.frequency.value = 3600;
-
+          // Узкая голосовая полоса (телефонный диапазон) — режет и низкий гул, и высокий шип/шипение
           const highpass = audioCtx.createBiquadFilter();
           highpass.type = 'highpass';
-          highpass.frequency.value = 160; 
+          highpass.frequency.value = 200;
+          highpass.Q.value = 0.7;
+
+          const lowpass = audioCtx.createBiquadFilter();
+          lowpass.type = 'lowpass';
+          lowpass.frequency.value = 3400;
+          lowpass.Q.value = 0.7;
+
+          // Дополнительно срезаем высокочастотный шип/шум (вентиляторы, эл. помехи)
+          const highShelf = audioCtx.createBiquadFilter();
+          highShelf.type = 'highshelf';
+          highShelf.frequency.value = 4500;
+          highShelf.gain.value = -18;
 
           const workletCode = `
             class NoiseGate extends AudioWorkletProcessor {
               constructor() {
                 super();
-                this.threshold = 0.0025; // Сниженный порог для совместимости с мобильными микрофонами
-                this.fadeOut = 0;
+                this.envelope = 0;          // сглаженная RMS-огибающая сигнала
+                this.noiseFloor = 0.0012;   // адаптивная оценка уровня фонового шума
+                this.gain = 0;              // текущее состояние гейта (0..1)
               }
               process(inputs, outputs) {
                 const input = inputs[0];
                 const output = outputs[0];
-                if (!input || !input.length) return true;
+                if (!input || !input.length || !input[0]) return true;
 
-                let isTalking = false;
-                for (let i = 0; i < input[0].length; i++) {
-                  if (Math.abs(input[0][i]) > this.threshold) {
-                    isTalking = true;
-                    break;
-                  }
+                const ch = input[0];
+                let sumSq = 0;
+                for (let i = 0; i < ch.length; i++) sumSq += ch[i] * ch[i];
+                const rms = Math.sqrt(sumSq / ch.length);
+
+                // Сглаживаем огибающую, чтобы гейт не дёргался на каждый сэмпл
+                this.envelope = this.envelope * 0.85 + rms * 0.15;
+
+                // Подстраиваем оценку шумового пола только когда сигнал тихий —
+                // так гейт сам подгоняется под уровень фонового шума конкретного микрофона/комнаты
+                if (this.envelope < this.noiseFloor * 2.2) {
+                  this.noiseFloor = this.noiseFloor * 0.995 + this.envelope * 0.005;
                 }
 
-                if (isTalking) this.fadeOut = 1.0;
-                else this.fadeOut = Math.max(0, this.fadeOut - 0.03);
+                // Порог срабатывания держим заметно выше шумового пола — максимальное подавление фона
+                const threshold = Math.max(this.noiseFloor * 3.5, 0.0016);
+                const isTalking = this.envelope > threshold;
+
+                // Быстрая атака (чтобы не резать начало слова) и мягкий релиз (без щелчков на затухании)
+                const target = isTalking ? 1 : 0;
+                const coeff = target > this.gain ? 0.45 : 0.045;
+                this.gain += (target - this.gain) * coeff;
 
                 for (let channel = 0; channel < input.length; channel++) {
                   for (let i = 0; i < input[channel].length; i++) {
-                    output[channel][i] = input[channel][i] * this.fadeOut;
+                    output[channel][i] = input[channel][i] * this.gain;
                   }
                 }
                 return true;
@@ -542,22 +590,24 @@
             }
             registerProcessor('noise-gate', NoiseGate);
           `;
-          
+
           const blob = new Blob([workletCode], { type: 'application/javascript' });
           const workletUrl = URL.createObjectURL(blob);
           await audioCtx.audioWorklet.addModule(workletUrl);
           const noiseGate = new AudioWorkletNode(audioCtx, 'noise-gate');
 
+          // Финальная компрессия/лимитирование — выравнивает громкость и дожимает остаточный шум
           const compressor = audioCtx.createDynamicsCompressor();
-          compressor.threshold.value = -40;
-          compressor.knee.value = 30;
-          compressor.ratio.value = 12;
-          compressor.attack.value = 0.005;
-          compressor.release.value = 0.1;
+          compressor.threshold.value = -45;
+          compressor.knee.value = 24;
+          compressor.ratio.value = 16;
+          compressor.attack.value = 0.003;
+          compressor.release.value = 0.08;
 
           source.connect(highpass);
           highpass.connect(lowpass);
-          lowpass.connect(noiseGate);
+          lowpass.connect(highShelf);
+          highShelf.connect(noiseGate);
           noiseGate.connect(compressor);
           compressor.connect(destination);
 
@@ -570,7 +620,9 @@
         }
 
       } catch(e) {
-        showError('Нет доступа к микрофону'); $joinBtn.disabled = false; return;
+        console.warn('Ошибка доступа к микрофону:', e);
+        showError('Нет доступа к микрофону. Проверь разрешение для микрофона в браузере и что сайт открыт по HTTPS.');
+        $joinBtn.disabled = false; return;
       }
 
       hasLeft = false; inCall = false; isInitiator = false; pc = null;
@@ -767,8 +819,8 @@
     };
 
     function updateDeafUI() {
-      if (deafened) { $deafIcon.textContent = '🔇'; $deafLabel.textContent = 'Звук выкл'; $deafBtn.classList.add('active'); }
-      else          { $deafIcon.textContent = '🔊'; $deafLabel.textContent = 'Звук';      $deafBtn.classList.remove('active'); }
+      if (deafened) { $deafIcon.textContent = '🔇'; $deafLabel.textContent = 'Звук'; $deafBtn.classList.add('active'); }
+      else          { $deafIcon.textContent = '🔊'; $deafLabel.textContent = 'Звук'; $deafBtn.classList.remove('active'); }
     }
 
     function updateBadgesUI() {
