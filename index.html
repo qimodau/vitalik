@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>виталик</title>
   <style>
-    /* ===== ВЕСЬ ТВОЙ CSS + ОБНОВЛЕНИЯ ЗНАЧКОВ ===== */
+    /* ===== ВЕСЬ ТВОЙ CSS СОХРАНЕН ===== */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
       --bg: #0e0e10; --surface: #18181b; --surface2: #222228;
@@ -50,7 +50,6 @@
     .avatar-circle.speaking { border-color: var(--green); box-shadow: 0 0 0 4px rgba(61,186,109,0.35), 0 0 16px rgba(61,186,109,0.2); animation: ring-pulse 1.2s ease-in-out infinite; }
     @keyframes ring-pulse { 0%,100% { box-shadow: 0 0 0 4px rgba(61,186,109,0.35), 0 0 16px rgba(61,186,109,0.15); } 50% { box-shadow: 0 0 0 7px rgba(61,186,109,0.2), 0 0 22px rgba(61,186,109,0.1); } }
     
-    /* Контейнер для значков ПОВЕРХ аватарки */
     .avatar-badges { position: absolute; top: 60px; display: flex; gap: 4px; z-index: 10; pointer-events: none; }
     .badge { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 2px 5px; font-size: 11px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 8px rgba(0,0,0,0.5); line-height: 1; color: var(--text); font-weight: 600; }
 
@@ -107,7 +106,6 @@
 </head>
 <body>
 
-  <!-- ВСПЛЫВАЮЩИЕ ОКНА -->
   <div class="topbar"><div></div><div class="topbar-right" id="topbarRight"></div></div>
 
   <div class="overlay" id="loginOverlay">
@@ -161,7 +159,6 @@
     </div>
   </div>
 
-  <!-- ОСНОВНАЯ СТРАНИЦА -->
   <div class="main">
     <div class="wrap">
       <div class="header" id="mainHeader">
@@ -226,7 +223,6 @@
 
   <audio id="remoteAudio" autoplay></audio>
 
-  <!-- ОСНОВНОЙ СКРИПТ -->
   <script type="module">
     // ─── FIREBASE CONFIG ──────────────────────────────────────────────────────
     function getFirebaseConfig() {
@@ -483,141 +479,18 @@
       $joinBtn.disabled = true;
 
       try {
-        // ===== СОЗДАЁМ AudioContext МАКСИМАЛЬНО РАНО, ВНУТРИ ЖЕСТА ПОЛЬЗОВАТЕЛЯ =====
-        // (на телефонах, особенно iOS, AudioContext не "разблокируется" если резюмировать его
-        //  слишком поздно после await — звук тогда просто не идёт, хотя ошибок нет)
-        let audioCtx = null;
-        try {
-          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-          if (audioCtx.state === 'suspended') await audioCtx.resume();
-        } catch (ctxErr) { audioCtx = null; }
-
-        // ===== ПРОГРЕССИВНЫЙ FALLBACK ОГРАНИЧЕНИЙ МИКРОФОНА ДЛЯ СОВМЕСТИМОСТИ С ТЕЛЕФОНАМИ =====
-        // Жёсткие constraints (точный sampleRate/channelCount) на части телефонов вызывают
-        // OverconstrainedError, и микрофон вообще не запускается. Пробуем от самых
-        // продвинутых ограничений к самым простым, пока что-то не сработает.
-        const constraintSets = [
-          {
-            echoCancellation: true, noiseSuppression: true, autoGainControl: true,
-            channelCount: { ideal: 1 }, sampleRate: { ideal: 48000 },
-            // Нестандартные, но широко поддерживаемые в Chromium constraints —
-            // включают второй, более агрессивный уровень шумоподавления/AGC (NS2/AGC2)
-            googNoiseSuppression: true, googNoiseSuppression2: true,
-            googEchoCancellation: true, googEchoCancellation2: true,
-            googAutoGainControl: true, googAutoGainControl2: true,
-            googHighpassFilter: true, googTypingNoiseDetection: true
+        // ===== ЧИСТЫЙ НАТИВНЫЙ ПОТОК (ЛУЧШИЙ ВАРИАНТ ДЛЯ FIREFOX И ANDROID) =====
+        // Запрашиваем аппаратное/нативное подавление шума браузера (использует встроенный ML).
+        // Мы НЕ будем ломать его, пропуская через AudioContext для отправки.
+        localStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            channelCount: 1 // Моно звук для экономии трафика и лучшей фокусировки голоса
           },
-          { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-          true
-        ];
-
-        let rawStream = null, lastErr = null;
-        for (const constraints of constraintSets) {
-          try { rawStream = await navigator.mediaDevices.getUserMedia({ audio: constraints, video: false }); break; }
-          catch (err) { lastErr = err; }
-        }
-        if (!rawStream) throw lastErr || new Error('Микрофон недоступен');
-
-        // ===== БЕЗОПАСНЫЙ И ГИБРИДНЫЙ АУДИОПАЙПЛАЙН С FALLBACK ДЛЯ ТЕЛЕФОНОВ =====
-        try {
-          if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-          if (audioCtx.state === 'suspended') await audioCtx.resume();
-          if (audioCtx.state !== 'running') throw new Error('AudioContext не запустился (заблокирован браузером)');
-
-          const source = audioCtx.createMediaStreamSource(rawStream);
-          const destination = audioCtx.createMediaStreamDestination();
-
-          // Узкая голосовая полоса (телефонный диапазон) — режет и низкий гул, и высокий шип/шипение
-          const highpass = audioCtx.createBiquadFilter();
-          highpass.type = 'highpass';
-          highpass.frequency.value = 200;
-          highpass.Q.value = 0.7;
-
-          const lowpass = audioCtx.createBiquadFilter();
-          lowpass.type = 'lowpass';
-          lowpass.frequency.value = 3400;
-          lowpass.Q.value = 0.7;
-
-          // Дополнительно срезаем высокочастотный шип/шум (вентиляторы, эл. помехи)
-          const highShelf = audioCtx.createBiquadFilter();
-          highShelf.type = 'highshelf';
-          highShelf.frequency.value = 4500;
-          highShelf.gain.value = -18;
-
-          const workletCode = `
-            class NoiseGate extends AudioWorkletProcessor {
-              constructor() {
-                super();
-                this.envelope = 0;          // сглаженная RMS-огибающая сигнала
-                this.noiseFloor = 0.0012;   // адаптивная оценка уровня фонового шума
-                this.gain = 0;              // текущее состояние гейта (0..1)
-              }
-              process(inputs, outputs) {
-                const input = inputs[0];
-                const output = outputs[0];
-                if (!input || !input.length || !input[0]) return true;
-
-                const ch = input[0];
-                let sumSq = 0;
-                for (let i = 0; i < ch.length; i++) sumSq += ch[i] * ch[i];
-                const rms = Math.sqrt(sumSq / ch.length);
-
-                // Сглаживаем огибающую, чтобы гейт не дёргался на каждый сэмпл
-                this.envelope = this.envelope * 0.85 + rms * 0.15;
-
-                // Подстраиваем оценку шумового пола только когда сигнал тихий —
-                // так гейт сам подгоняется под уровень фонового шума конкретного микрофона/комнаты
-                if (this.envelope < this.noiseFloor * 2.2) {
-                  this.noiseFloor = this.noiseFloor * 0.995 + this.envelope * 0.005;
-                }
-
-                // Порог срабатывания держим заметно выше шумового пола — максимальное подавление фона
-                const threshold = Math.max(this.noiseFloor * 3.5, 0.0016);
-                const isTalking = this.envelope > threshold;
-
-                // Быстрая атака (чтобы не резать начало слова) и мягкий релиз (без щелчков на затухании)
-                const target = isTalking ? 1 : 0;
-                const coeff = target > this.gain ? 0.45 : 0.045;
-                this.gain += (target - this.gain) * coeff;
-
-                for (let channel = 0; channel < input.length; channel++) {
-                  for (let i = 0; i < input[channel].length; i++) {
-                    output[channel][i] = input[channel][i] * this.gain;
-                  }
-                }
-                return true;
-              }
-            }
-            registerProcessor('noise-gate', NoiseGate);
-          `;
-
-          const blob = new Blob([workletCode], { type: 'application/javascript' });
-          const workletUrl = URL.createObjectURL(blob);
-          await audioCtx.audioWorklet.addModule(workletUrl);
-          const noiseGate = new AudioWorkletNode(audioCtx, 'noise-gate');
-
-          // Финальная компрессия/лимитирование — выравнивает громкость и дожимает остаточный шум
-          const compressor = audioCtx.createDynamicsCompressor();
-          compressor.threshold.value = -45;
-          compressor.knee.value = 24;
-          compressor.ratio.value = 16;
-          compressor.attack.value = 0.003;
-          compressor.release.value = 0.08;
-
-          source.connect(highpass);
-          highpass.connect(lowpass);
-          lowpass.connect(highShelf);
-          highShelf.connect(noiseGate);
-          noiseGate.connect(compressor);
-          compressor.connect(destination);
-
-          localStream = destination.stream;
-          localStream.originalTracks = rawStream.getTracks();
-        } catch (audioCtxError) {
-          console.warn("Продвинутый аудио-пайплайн заблокирован или не поддерживается. Переключаемся на чистый поток микрофона.", audioCtxError);
-          localStream = rawStream;
-          localStream.originalTracks = rawStream.getTracks();
-        }
+          video: false
+        });
 
       } catch(e) {
         console.warn('Ошибка доступа к микрофону:', e);
@@ -654,13 +527,11 @@
         const data = snap.val();
         
         if (data) {
-          // Динамическое определение и отрисовка данных собеседника (Исправляет баг "Собеседник")
           const peerName = isInitiator ? data.calleeName : data.callerName;
           if (peerName && peerName !== $peerName.textContent) {
             await setPeerNameAndAvatar(peerName);
           }
 
-          // Рендеринг иконок заглушения собеседника из Firebase
           const peerMicMuted = isInitiator ? data.calleeMicMuted : data.callerMicMuted;
           const peerDeafened = isInitiator ? data.calleeDeafened : data.callerDeafened;
           const $peerBadges = document.getElementById('peerBadges');
@@ -726,7 +597,10 @@
 
     function buildPC(roomName, asInitiator) {
       const connection = new RTCPeerConnection(ICE_SERVERS);
+      
+      // Отправляем оригинальный чистый поток (с нативным шумодавом браузера)
       localStream.getTracks().forEach(t => connection.addTrack(t, localStream));
+      
       remoteStream = new MediaStream();
       $remoteAudio.srcObject = remoteStream;
       connection.ontrack = (e) => {
@@ -771,7 +645,6 @@
       if (pc) { pc.close(); pc = null; }
       
       if (localStream) {
-        if (localStream.originalTracks) localStream.originalTracks.forEach(t=>t.stop());
         localStream.getTracks().forEach(t=>t.stop()); 
         localStream = null; 
       }
@@ -793,9 +666,7 @@
       micMuted = !micMuted;
       
       localStream.getAudioTracks().forEach(t => { t.enabled = !micMuted; });
-      if (localStream.originalTracks) {
-        localStream.originalTracks.forEach(t => { t.enabled = !micMuted; });
-      }
+      
       updateMicUI();
       updateBadgesUI();
       syncMyStatus();
@@ -863,17 +734,21 @@
       } catch(e) {}
     })();
 
-    // ─── SPEAKING DETECTION ───────────────────────────────────────────────────
+    // ─── SPEAKING DETECTION (НЕ ВЛИЯЕТ НА ПЕРЕДАЧУ ЗВУКА) ────────────────────
     let _audioCtxVis = null, _analyserLocal = null, _analyserRemote = null;
     let _spkIntLocal = null, _spkIntRemote = null;
 
     function startSpeakingDetection() {
       try {
+        // Запускаем AudioContext только для визуализации. Он "слушает" поток сбоку, не ломая WebRTC.
         _audioCtxVis = new (window.AudioContext || window.webkitAudioContext)();
-        const srcStream = localStream;
-        if (srcStream) {
-          const src = _audioCtxVis.createMediaStreamSource(srcStream);
-          _analyserLocal = _audioCtxVis.createAnalyser(); _analyserLocal.fftSize = 512; src.connect(_analyserLocal);
+        
+        if (localStream) {
+          const src = _audioCtxVis.createMediaStreamSource(localStream);
+          _analyserLocal = _audioCtxVis.createAnalyser(); 
+          _analyserLocal.fftSize = 512; 
+          src.connect(_analyserLocal); // ВАЖНО: не подключаем к destination!
+          
           const data = new Uint8Array(_analyserLocal.frequencyBinCount);
           _spkIntLocal = setInterval(() => {
             if (!_analyserLocal) return;
@@ -884,7 +759,10 @@
         }
         if ($remoteAudio.srcObject) {
           const src2 = _audioCtxVis.createMediaStreamSource($remoteAudio.srcObject);
-          _analyserRemote = _audioCtxVis.createAnalyser(); _analyserRemote.fftSize = 512; src2.connect(_analyserRemote);
+          _analyserRemote = _audioCtxVis.createAnalyser(); 
+          _analyserRemote.fftSize = 512; 
+          src2.connect(_analyserRemote);
+          
           const data2 = new Uint8Array(_analyserRemote.frequencyBinCount);
           _spkIntRemote = setInterval(() => {
             if (!_analyserRemote) return;
