@@ -4,17 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>виталик</title>
-  <!-- RNNoise WASM noise suppression — загружается только на десктопе -->
-  <script>
-    (function() {
-      var isAndroid = /Android/i.test(navigator.userAgent);
-      if (!isAndroid) {
-        var s = document.createElement('script');
-        s.src = 'https://cdn.jsdelivr.net/npm/@shiguredo/noise-suppression@latest/dist/noise_suppression.js';
-        document.head.appendChild(s);
-      }
-    })();
-  </script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
@@ -24,11 +13,7 @@
       --red: #e04040; --red-hover: #f05050;
       --green: #3dba6d; --yellow: #e6a817; --radius: 12px;
     }
-    body {
-      background: var(--bg); color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      min-height: 100vh; user-select: none;
-    }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; user-select: none; }
     .topbar { position: fixed; top: 0; left: 0; right: 0; height: 52px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; z-index: 100; justify-content: space-between; }
     .topbar-right { display: flex; align-items: center; gap: 10px; }
     .user-chip { display: flex; align-items: center; gap: 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 5px 12px 5px 8px; cursor: pointer; transition: border-color 0.15s; font-size: 13px; color: var(--text); }
@@ -125,14 +110,8 @@
         <div style="font-size:36px;margin-bottom:14px">🎙️</div>
         <h2 style="font-size:20px">Войти</h2>
       </div>
-      <div class="field">
-        <label>Имя пользователя</label>
-        <input type="text" id="loginName" placeholder="имя" autocomplete="username" />
-      </div>
-      <div class="field">
-        <label>Пароль</label>
-        <input type="password" id="loginPass" placeholder="пароль" autocomplete="current-password" />
-      </div>
+      <div class="field"><label>Имя пользователя</label><input type="text" id="loginName" placeholder="имя" autocomplete="username" /></div>
+      <div class="field"><label>Пароль</label><input type="password" id="loginPass" placeholder="пароль" autocomplete="current-password" /></div>
       <div class="modal-err" id="loginErr"></div>
       <button class="btn-modal primary" onclick="doLogin()">Войти</button>
     </div>
@@ -191,12 +170,10 @@
         <div id="roomHint" style="display:none;font-size:12px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:10px;line-height:1.5">
           Введи одинаковое название с человеком, чтобы попасть в одну комнату (Пробелы заменяются на "_")
         </div>
-        <div class="room-input-row">
-          <input type="text" id="roomInput" placeholder="название комнаты" value="комната" />
-        </div>
+        <div class="room-input-row"><input type="text" id="roomInput" placeholder="название комнаты" value="комната" /></div>
       </div>
 
-      <div class="status-bar" id="statusBar">
+      <div class="status-bar">
         <div class="dot" id="dot"></div>
         <span class="status-text" id="statusText">Войди в аккаунт чтобы начать</span>
       </div>
@@ -212,9 +189,7 @@
         </div>
         <div class="sep-arrow">↔</div>
         <div class="avatar">
-          <div class="avatar-circle" id="peerAvatar">
-            <span id="peerAvatarText">👤</span>
-          </div>
+          <div class="avatar-circle" id="peerAvatar"><span id="peerAvatarText">👤</span></div>
           <div class="avatar-name" id="peerName">Собеседник</div>
         </div>
       </div>
@@ -236,7 +211,6 @@
           <span class="ctrl-label">Выйти</span>
         </button>
       </div>
-
       <footer>WebRTC · бесплатно · p2p</footer>
     </div>
   </div>
@@ -257,44 +231,49 @@
       };
     }
 
-    // ─── ADMIN ────────────────────────────────────────────────────────────────
-    const ADMIN_NAME = 'qamodik';
+    const ADMIN_NAME      = 'qamodik';
     const ADMIN_PASS_HASH = '4d6fa21b90fd93c7043ada4c380872982ed81009bd8f93a4aced7db00600014b';
 
-    // ─── ICE SERVERS: STUN + TURN для работы без VPN ─────────────────────────
-    // TURN нужен когда STUN не пробивает NAT (мобильные сети, корп. сети).
-    // openrelay.metered.ca — бесплатный production TURN, порты 80/443/TCP/UDP.
+    // ─── ICE: STUN + несколько TURN для работы без VPN ───────────────────────
+    // openrelay.metered.ca — бесплатный продакшен TURN, порты 80/443/TCP/TLS.
+    // Перебирает все варианты: P2P → UDP TURN → TCP TURN → TLS TURN.
     const ICE_SERVERS = {
       iceServers: [
-        // STUN — пробуем прямое P2P соединение
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
-        // TURN UDP (основной)
-        { urls: 'turn:openrelay.metered.ca:80',   username: 'openrelayproject', credential: 'openrelayproject' },
-        // TURN TCP — пробивает большинство файерволов
-        { urls: 'turn:openrelay.metered.ca:80?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
-        // TURNS (TLS) на 443 — работает почти везде, включая строгие корп. сети
-        { urls: 'turns:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+        { urls: 'turn:openrelay.metered.ca:80',                  username: 'openrelayproject', credential: 'openrelayproject' },
+        { urls: 'turn:openrelay.metered.ca:80?transport=tcp',    username: 'openrelayproject', credential: 'openrelayproject' },
+        { urls: 'turns:openrelay.metered.ca:443?transport=tcp',  username: 'openrelayproject', credential: 'openrelayproject' },
       ]
     };
 
-    // ─── ОПРЕДЕЛЯЕМ ПЛАТФОРМУ ─────────────────────────────────────────────────
+    // ─── ДЕТЕКТ ПЛАТФОРМЫ ─────────────────────────────────────────────────────
     const IS_ANDROID = /Android/i.test(navigator.userAgent);
-    // AudioWorklet на Android Chrome глючит (дистортия, крекли).
-    // На Android используем только встроенное шумоподавление браузера.
-    // На десктопном Chrome и Firefox — RNNoise через AudioWorklet.
-    const USE_RNNOISE = !IS_ANDROID;
-    const RNNOISE_ASSETS = 'https://cdn.jsdelivr.net/npm/@shiguredo/noise-suppression@latest/dist';
+    const IS_MOBILE  = IS_ANDROID || /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    // AudioWorklet глючит на Android Chrome: даёт хрипы/дистортию.
+    // На Android/iOS используем ScriptProcessorNode (deprecated но стабильный).
+    // На десктопе — AudioWorklet (современный, низкая латентность).
+    const USE_WORKLET = !IS_MOBILE && !!(window.AudioWorklet);
+
+    // RNNoise WASM через @shiguredo/noise-suppression (Jitsi-style).
+    // Работает на ВСЕХ платформах: десктоп через Worklet, мобайл через ScriptProcessor.
+    const RNNOISE_CDN = 'https://cdn.jsdelivr.net/npm/@shiguredo/noise-suppression@latest/dist';
 
     // ─── STATE ────────────────────────────────────────────────────────────────
     let db = null, pc = null, localStream = null, remoteStream = null;
     let roomRef = null, isInitiator = false;
     let micMuted = false, deafened = false, inCall = false, hasLeft = false;
     let currentUser = null;
-    let _rnnoiseProcessor = null;
 
-    // ─── DOM ──────────────────────────────────────────────────────────────────
+    // RNNoise state
+    let _rnProcessor = null;      // @shiguredo processor (десктоп)
+    let _scriptNode  = null;       // ScriptProcessorNode (мобайл fallback)
+    let _audioCtxNS  = null;       // AudioContext для шумоподавления на мобайл
+    let _rnModule    = null;       // rnnoise WASM module (мобайл)
+    let _rnState     = null;       // rnnoise state handle (мобайл)
+
+    // DOM
     const $joinBtn      = document.getElementById('joinBtn');
     const $controls     = document.getElementById('controls');
     const $statusText   = document.getElementById('statusText');
@@ -313,28 +292,24 @@
     const $peerName     = document.getElementById('peerName');
     const $roomInput    = document.getElementById('roomInput');
     const $topbarRight  = document.getElementById('topbarRight');
-    const $loginOverlay = document.getElementById('loginOverlay');
+    const $loginOverlay       = document.getElementById('loginOverlay');
     const $managerOverlay     = document.getElementById('managerOverlay');
     const $avatarPanelOverlay = document.getElementById('avatarPanelOverlay');
 
-    // ─── SHA‑256 ─────────────────────────────────────────────────────────────
     async function sha256(str) {
       const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
       return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
     }
 
-    // ─── INIT ─────────────────────────────────────────────────────────────────
     window.addEventListener('load', async () => {
       const urlRoom = new URLSearchParams(location.search).get('room');
       if (urlRoom) $roomInput.value = urlRoom;
       await initFirebase();
       const saved = sessionStorage.getItem('voiceUser');
-      if (saved) {
-        try { currentUser = JSON.parse(saved); onLoggedIn(); } catch { showLogin(); }
-      } else { showLogin(); }
+      if (saved) { try { currentUser = JSON.parse(saved); onLoggedIn(); } catch { showLogin(); } }
+      else showLogin();
     });
 
-    // ─── AUTH UI ──────────────────────────────────────────────────────────────
     function showLogin() {
       $loginOverlay.classList.add('open');
       setTimeout(() => document.getElementById('loginName').focus(), 100);
@@ -354,11 +329,8 @@
           if (snap.exists()) { savedAvatar = snap.val(); localStorage.setItem('voiceAvatar', savedAvatar); }
         } catch(e) {}
       }
-      if (savedAvatar) {
-        av.innerHTML = `<img src="${savedAvatar}" /><div class="avatar-upload-hint">📷</div>`;
-      } else {
-        av.innerHTML = `<span id="myAvatarText">${currentUser.name.slice(0,2).toUpperCase()}</span>`;
-      }
+      if (savedAvatar) av.innerHTML = `<img src="${savedAvatar}" /><div class="avatar-upload-hint">📷</div>`;
+      else av.innerHTML = `<span id="myAvatarText">${currentUser.name.slice(0,2).toUpperCase()}</span>`;
       av.onclick = () => document.getElementById('avatarInput').click();
       renderTopbar();
     }
@@ -373,17 +345,14 @@
       if (!currentUser) { $topbarRight.innerHTML = ''; return; }
       const av = getTopbarAvatarHtml();
       if (currentUser.isAdmin) {
-        $topbarRight.innerHTML = `
-          <div class="user-chip" style="gap:0;background:none;border:none;padding:0">
-            <div style="display:flex;align-items:center;gap:8px;cursor:pointer;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:5px 12px 5px 8px;margin-right:10px" onclick="openAvatarPanel()">${av}<span>${currentUser.name}</span></div>
-            <span class="admin-badge" style="cursor:pointer;padding:5px 12px;border-radius:20px;margin-left:0" onclick="openManager()">admin</span>
-          </div>`;
+        $topbarRight.innerHTML = `<div class="user-chip" style="gap:0;background:none;border:none;padding:0">
+          <div style="display:flex;align-items:center;gap:8px;cursor:pointer;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:5px 12px 5px 8px;margin-right:10px" onclick="openAvatarPanel()">${av}<span>${currentUser.name}</span></div>
+          <span class="admin-badge" style="cursor:pointer;padding:5px 12px;border-radius:20px;margin-left:0" onclick="openManager()">admin</span></div>`;
       } else {
         $topbarRight.innerHTML = `<div class="user-chip" onclick="openAvatarPanel()">${av}<span>${currentUser.name}</span></div>`;
       }
     }
 
-    // ─── LOGIN ────────────────────────────────────────────────────────────────
     window.doLogin = async function() {
       const name = document.getElementById('loginName').value.trim().toLowerCase();
       const pass = document.getElementById('loginPass').value;
@@ -397,22 +366,17 @@
         onLoggedIn(); return;
       }
       if (!db) { err.textContent = 'Firebase не настроен'; return; }
-      const { ref, get } = window._fb;
-      const snap = await get(ref(db, `accounts/${name}`));
-      if (!snap.exists()) { err.textContent = 'Неверное имя или пароль'; return; }
-      if (snap.val().passHash !== hash) { err.textContent = 'Неверное имя или пароль'; return; }
+      const snap = await window._fb.get(window._fb.ref(db, `accounts/${name}`));
+      if (!snap.exists() || snap.val().passHash !== hash) { err.textContent = 'Неверное имя или пароль'; return; }
       currentUser = { name, isAdmin: false };
       sessionStorage.setItem('voiceUser', JSON.stringify(currentUser));
       onLoggedIn();
     };
 
     window.doLogout = function() {
-      sessionStorage.removeItem('voiceUser');
-      currentUser = null;
-      $topbarRight.innerHTML = '';
-      $joinBtn.style.display = 'none';
-      $controls.classList.remove('visible');
-      $avatars.classList.remove('visible');
+      sessionStorage.removeItem('voiceUser'); currentUser = null;
+      $topbarRight.innerHTML = ''; $joinBtn.style.display = 'none';
+      $controls.classList.remove('visible'); $avatars.classList.remove('visible');
       if (inCall) leaveCall();
       setStatus('idle', 'Войди в аккаунт чтобы начать');
       closeManager(); closeAvatarPanel(); showLogin();
@@ -421,7 +385,6 @@
     document.getElementById('loginName').addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('loginPass').focus(); });
     document.getElementById('loginPass').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
 
-    // ─── AVATAR PANEL ─────────────────────────────────────────────────────────
     window.openAvatarPanel = function() {
       if (!currentUser) return;
       const prev = document.getElementById('panelAvatarPreview');
@@ -437,15 +400,13 @@
       const file = input.files[0]; if (!file) return;
       const reader = new FileReader();
       reader.onload = async (e) => {
-        const base64 = e.target.result;
-        localStorage.setItem('voiceAvatar', base64);
-        document.getElementById('panelAvatarPreview').innerHTML = `<img src="${base64}" style="width:100%;height:100%;object-fit:cover">`;
+        const b64 = e.target.result;
+        localStorage.setItem('voiceAvatar', b64);
+        document.getElementById('panelAvatarPreview').innerHTML = `<img src="${b64}" style="width:100%;height:100%;object-fit:cover">`;
         renderTopbar();
-        const av = document.getElementById('myAvatar');
-        av.innerHTML = `<img src="${base64}" /><div class="avatar-upload-hint">📷</div>`;
-        if (db && currentUser && !currentUser.isAdmin) {
-          try { await window._fb.set(window._fb.ref(db, `accounts/${currentUser.name}/avatar`), base64); } catch(ex) {}
-        }
+        document.getElementById('myAvatar').innerHTML = `<img src="${b64}" /><div class="avatar-upload-hint">📷</div>`;
+        if (db && currentUser && !currentUser.isAdmin)
+          try { await window._fb.set(window._fb.ref(db, `accounts/${currentUser.name}/avatar`), b64); } catch(ex) {}
       };
       reader.readAsDataURL(file);
     };
@@ -453,15 +414,12 @@
     window.removePanelAvatar = async function() {
       localStorage.removeItem('voiceAvatar');
       document.getElementById('panelAvatarPreview').textContent = currentUser.name.slice(0,2).toUpperCase();
-      if (db && currentUser && !currentUser.isAdmin) {
+      if (db && currentUser && !currentUser.isAdmin)
         try { await window._fb.remove(window._fb.ref(db, `accounts/${currentUser.name}/avatar`)); } catch(ex) {}
-      }
       renderTopbar();
-      const av = document.getElementById('myAvatar');
-      av.innerHTML = `<span id="myAvatarText">${currentUser.name.slice(0,2).toUpperCase()}</span><div class="avatar-upload-hint">📷</div>`;
+      document.getElementById('myAvatar').innerHTML = `<span id="myAvatarText">${currentUser.name.slice(0,2).toUpperCase()}</span><div class="avatar-upload-hint">📷</div>`;
     };
 
-    // ─── MANAGER ──────────────────────────────────────────────────────────────
     window.openManager = async function() {
       if (!currentUser?.isAdmin) return;
       document.getElementById('managerErr').textContent = '';
@@ -478,13 +436,10 @@
       list.innerHTML = '<div class="empty-list">Загружаем...</div>';
       let rows = `<div class="account-row"><div class="account-row-info"><div class="account-row-name">${ADMIN_NAME}</div><div class="account-row-role">Администратор · нельзя удалить</div></div><span class="admin-badge">admin</span></div>`;
       if (db) {
-        const { ref, get } = window._fb;
-        const snap = await get(ref(db, 'accounts'));
-        if (snap.exists()) {
-          Object.keys(snap.val()).sort().forEach(name => {
-            rows += `<div class="account-row"><div class="account-row-info"><div class="account-row-name">${escHtml(name)}</div><div class="account-row-role">Пользователь</div></div><button class="account-row-del" onclick="deleteAccount('${escHtml(name)}')">✕</button></div>`;
-          });
-        }
+        const snap = await window._fb.get(window._fb.ref(db, 'accounts'));
+        if (snap.exists()) Object.keys(snap.val()).sort().forEach(n => {
+          rows += `<div class="account-row"><div class="account-row-info"><div class="account-row-name">${escHtml(n)}</div><div class="account-row-role">Пользователь</div></div><button class="account-row-del" onclick="deleteAccount('${escHtml(n)}')">✕</button></div>`;
+        });
       }
       list.innerHTML = rows;
     }
@@ -498,24 +453,21 @@
       if (name === ADMIN_NAME) { err.textContent = 'Имя зарезервировано'; return; }
       if (pass.length < 4) { err.textContent = 'Пароль минимум 4 символа'; return; }
       if (!db) { err.textContent = 'Firebase не настроен'; return; }
-      const { ref, get, set } = window._fb;
-      if ((await get(ref(db, `accounts/${name}`))).exists()) { err.textContent = 'Имя занято'; return; }
-      await set(ref(db, `accounts/${name}`), { passHash: await sha256(pass) });
+      if ((await window._fb.get(window._fb.ref(db, `accounts/${name}`))).exists()) { err.textContent = 'Имя занято'; return; }
+      await window._fb.set(window._fb.ref(db, `accounts/${name}`), { passHash: await sha256(pass) });
       document.getElementById('newAccName').value = '';
       document.getElementById('newAccPass').value = '';
       await renderAccountList();
     };
 
     window.deleteAccount = async function(name) {
-      if (!db || name === ADMIN_NAME) return;
-      if (!confirm(`Удалить «${name}»?`)) return;
+      if (!db || name === ADMIN_NAME || !confirm(`Удалить «${name}»?`)) return;
       await window._fb.remove(window._fb.ref(db, `accounts/${name}`));
       await renderAccountList();
     };
 
     function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-    // ─── FIREBASE INIT ────────────────────────────────────────────────────────
     async function initFirebase() {
       const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
       const { getDatabase, ref, set, get, onValue, off, push, remove, onDisconnect } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js');
@@ -523,44 +475,140 @@
       window._fb = { ref, set, get, onValue, off, push, remove, onDisconnect };
     }
 
-    // ─── ШУМОПОДАВЛЕНИЕ ───────────────────────────────────────────────────────
-    // Android: AudioWorklet глючит на мобильном Chrome → только нативное браузера.
-    // Desktop (Chrome/Firefox): RNNoise через AudioWorklet (нейросеть, намного лучше).
+    // ─── ШУМОПОДАВЛЕНИЕ — УНИВЕРСАЛЬНОЕ ──────────────────────────────────────
+    // Стратегия:
+    //   Десктоп (Chrome/Firefox): @shiguredo/noise-suppression через AudioWorklet
+    //   Мобайл (Android Chrome):  rnnoise-wasm напрямую через ScriptProcessorNode
+    //     ScriptProcessorNode deprecated, но AudioWorklet на Android дистортит —
+    //     это единственный стабильный вариант для мобайла.
+
     async function initNoiseSuppression() {
-      if (!USE_RNNOISE) {
-        console.log('Android: используем встроенное шумоподавление браузера');
-        return localStream;
+      if (USE_WORKLET) {
+        return await initNoiseSuppressionWorklet();
+      } else {
+        return await initNoiseSuppressionScript();
       }
+    }
+
+    // Десктоп: AudioWorklet + @shiguredo
+    async function initNoiseSuppressionWorklet() {
       try {
-        // Ждём загрузки скрипта (он грузится асинхронно в <head>)
-        if (typeof Shiguredo === 'undefined' || !Shiguredo.NoiseSuppressionProcessor) {
+        // Динамически грузим библиотеку если ещё не загружена
+        if (typeof Shiguredo === 'undefined') {
           await new Promise((resolve, reject) => {
-            let attempts = 0;
-            const check = setInterval(() => {
-              if (typeof Shiguredo !== 'undefined' && Shiguredo.NoiseSuppressionProcessor) {
-                clearInterval(check); resolve();
-              } else if (++attempts > 40) { // 4 секунды
-                clearInterval(check); reject(new Error('timeout'));
-              }
-            }, 100);
+            const s = document.createElement('script');
+            s.src = `${RNNOISE_CDN}/noise_suppression.js`;
+            s.onload = resolve;
+            s.onerror = reject;
+            document.head.appendChild(s);
           });
         }
-        _rnnoiseProcessor = new Shiguredo.NoiseSuppressionProcessor(RNNOISE_ASSETS);
-        const originalTrack = localStream.getAudioTracks()[0];
-        const processedTrack = await _rnnoiseProcessor.startProcessing(originalTrack);
-        console.log('RNNoise: шумоподавление активно ✓');
+        _rnProcessor = new Shiguredo.NoiseSuppressionProcessor(RNNOISE_CDN);
+        const track = localStream.getAudioTracks()[0];
+        const processedTrack = await _rnProcessor.startProcessing(track);
+        console.log('✓ RNNoise AudioWorklet (десктоп)');
         return new MediaStream([processedTrack]);
-      } catch (e) {
-        console.warn('RNNoise: ошибка, откат на браузерное шумоподавление:', e);
-        _rnnoiseProcessor = null;
+      } catch(e) {
+        console.warn('RNNoise Worklet ошибка, откат:', e);
         return localStream;
       }
     }
 
+    // Мобайл: ScriptProcessorNode + rnnoise-wasm (WASM inline)
+    // Грузим лёгкий WASM от Jitsi — он умеет работать синхронно в ScriptProcessor
+    async function initNoiseSuppressionScript() {
+      try {
+        // Грузим rnnoise-wasm от jitsi (синхронная версия, base64 wasm внутри)
+        if (!_rnModule) {
+          await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            // Используем sync-версию — wasm вшит как base64, не нужен доп. fetch
+            s.src = 'https://cdn.jsdelivr.net/npm/@jitsi/rnnoise-wasm@0.0.3/dist/rnnoise-sync.js';
+            s.onload = resolve;
+            s.onerror = reject;
+            document.head.appendChild(s);
+          });
+          // Ждём инициализации WASM
+          await new Promise(resolve => {
+            const check = setInterval(() => {
+              if (typeof createRNNWasmModuleSync !== 'undefined') { clearInterval(check); resolve(); }
+            }, 50);
+            setTimeout(() => { clearInterval(check); resolve(); }, 3000);
+          });
+          _rnModule = await createRNNWasmModuleSync();
+        }
+
+        _audioCtxNS = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+        _rnState = _rnModule.newState();
+
+        const srcNode  = _audioCtxNS.createMediaStreamSource(localStream);
+        const dstNode  = _audioCtxNS.createMediaStreamDestination();
+        // ScriptProcessorNode: 4096 сэмплов, 1 канал вход, 1 канал выход
+        const bufSize  = 4096;
+        _scriptNode = _audioCtxNS.createScriptProcessor(bufSize, 1, 1);
+
+        const FRAME = 480; // RNNoise обрабатывает по 480 сэмплов за раз
+        let inputBuf  = new Float32Array(0);
+        let outputBuf = new Float32Array(0);
+
+        _scriptNode.onaudioprocess = (ev) => {
+          const input  = ev.inputBuffer.getChannelData(0);
+          const output = ev.outputBuffer.getChannelData(0);
+
+          // Накапливаем входные данные
+          const combined = new Float32Array(inputBuf.length + input.length);
+          combined.set(inputBuf);
+          combined.set(input, inputBuf.length);
+          inputBuf = combined;
+
+          let outPos = 0;
+          const outChunks = [];
+
+          // Обрабатываем полными фреймами по 480 сэмплов
+          while (inputBuf.length >= FRAME) {
+            const frame = inputBuf.slice(0, FRAME);
+            inputBuf = inputBuf.slice(FRAME);
+            // rnnoise принимает Int16, возвращает обработанный Float32
+            const frameInt16 = new Int16Array(FRAME);
+            for (let i = 0; i < FRAME; i++) frameInt16[i] = Math.max(-32768, Math.min(32767, frame[i] * 32768));
+            const processed = _rnModule.processFrame(_rnState, frameInt16);
+            const processedFloat = new Float32Array(FRAME);
+            for (let i = 0; i < FRAME; i++) processedFloat[i] = processed[i] / 32768;
+            outChunks.push(processedFloat);
+            outPos += FRAME;
+          }
+
+          // Собираем выход
+          const outAll = new Float32Array(bufSize);
+          let writePos = 0;
+          for (const chunk of outChunks) {
+            outAll.set(chunk, writePos);
+            writePos += chunk.length;
+          }
+          output.set(outAll);
+        };
+
+        srcNode.connect(_scriptNode);
+        _scriptNode.connect(dstNode);
+
+        console.log('✓ RNNoise ScriptProcessor (мобайл)');
+        return dstNode.stream;
+      } catch(e) {
+        console.warn('RNNoise ScriptProcessor ошибка, откат на браузерное:', e);
+        return localStream;
+      }
+    }
+
+    function stopNoiseSuppression() {
+      if (_rnProcessor) { try { _rnProcessor.stopProcessing(); } catch(e) {} _rnProcessor = null; }
+      if (_scriptNode)  { try { _scriptNode.disconnect(); }       catch(e) {} _scriptNode = null; }
+      if (_rnState && _rnModule) { try { _rnModule.deleteState(_rnState); } catch(e) {} _rnState = null; }
+      if (_audioCtxNS) { try { _audioCtxNS.close(); } catch(e) {} _audioCtxNS = null; }
+    }
+
     // ─── CALL ─────────────────────────────────────────────────────────────────
     window.joinCall = async function() {
-      if (!currentUser) return;
-      if (!db) { showError('Firebase инициализируется, подожди секунду.'); return; }
+      if (!currentUser || !db) { showError('Firebase инициализируется, подожди секунду.'); return; }
       clearError();
       const roomName = $roomInput.value.trim().replace(/\s+/g,'_').replace(/[^\w\u0400-\u04FF-]/g,'') || 'комната';
       $roomInput.value = roomName;
@@ -568,17 +616,15 @@
       $joinBtn.disabled = true;
 
       try {
-        // На Android отключаем echoCancellation от браузера — он конфликтует
-        // с нашей обработкой. RNNoise там не используем, поэтому оставляем
-        // встроенное noiseSuppression браузера.
-        const audioConstraints = IS_ANDROID
+        // Отключаем браузерное noiseSuppression на десктопе — RNNoise справится лучше.
+        // На мобайле оставляем: оно работает в связке с нашим RNNoise как pre-filter.
+        const audioConstraints = IS_MOBILE
           ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 }
           : { echoCancellation: true, noiseSuppression: false, autoGainControl: true, channelCount: 1, sampleRate: { ideal: 48000 } };
-        // На десктопе выключаем noiseSuppression браузера — RNNoise справится лучше.
+
         localStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
       } catch(e) {
-        showError('Нет доступа к микрофону');
-        $joinBtn.disabled = false; return;
+        showError('Нет доступа к микрофону'); $joinBtn.disabled = false; return;
       }
 
       window.__processedStream = await initNoiseSuppression();
@@ -586,104 +632,85 @@
       await startWebRTC(roomName);
     };
 
-    let _signalingBusy = false;
-    let _addedCandidates = new Set();
+    let _signalingBusy = false, _addedCandidates = new Set();
 
     async function setPeerNameAndAvatar(name) {
       $peerName.textContent = name;
       const av = document.getElementById('peerAvatar');
       let avatarUrl = null;
       if (db && name !== ADMIN_NAME) {
-        try {
-          const snap = await window._fb.get(window._fb.ref(db, `accounts/${name}/avatar`));
-          if (snap.exists()) avatarUrl = snap.val();
-        } catch(e) {}
+        try { const snap = await window._fb.get(window._fb.ref(db, `accounts/${name}/avatar`)); if (snap.exists()) avatarUrl = snap.val(); } catch(e) {}
       }
-      if (avatarUrl) {
-        av.innerHTML = `<img src="${avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%" />`;
-      } else {
-        av.innerHTML = `<span id="peerAvatarText">${name.slice(0,2).toUpperCase()}</span>`;
-      }
+      av.innerHTML = avatarUrl
+        ? `<img src="${avatarUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%" />`
+        : `<span id="peerAvatarText">${name.slice(0,2).toUpperCase()}</span>`;
     }
 
     async function startWebRTC(roomName) {
-      const { ref, set, onValue, push, remove, onDisconnect } = window._fb;
-      roomRef = ref(db, `rooms/${roomName}`);
-      _signalingBusy = false;
-      _addedCandidates = new Set();
+      roomRef = window._fb.ref(db, `rooms/${roomName}`);
+      _signalingBusy = false; _addedCandidates = new Set();
 
-      onValue(roomRef, async (snap) => {
+      window._fb.onValue(roomRef, async (snap) => {
         if (hasLeft) return;
         const data = snap.val();
         if (!data || !data.offer) {
           if (inCall || _signalingBusy || isInitiator) return;
           _signalingBusy = true; isInitiator = true;
-          await createOffer(roomName);
-          _signalingBusy = false;
+          await createOffer(roomName); _signalingBusy = false;
         } else if (data.offer && !data.answer && !isInitiator) {
           if (inCall || _signalingBusy) return;
           _signalingBusy = true; isInitiator = false;
           if (data.callerName) await setPeerNameAndAvatar(data.callerName);
-          await createAnswer(roomName, data.offer);
-          _signalingBusy = false;
+          await createAnswer(roomName, data.offer); _signalingBusy = false;
         } else if (data.answer && isInitiator && pc && pc.signalingState !== 'stable') {
           if (data.calleeName) await setPeerNameAndAvatar(data.calleeName);
           await pc.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(()=>{});
         }
         if (data && pc) {
           const theirKey = isInitiator ? 'iceCallee' : 'iceCaller';
-          if (data[theirKey]) {
-            Object.entries(data[theirKey]).forEach(async ([key, c]) => {
-              if (c?.candidate && !_addedCandidates.has(key)) {
-                _addedCandidates.add(key);
-                try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch(e) {}
-              }
-            });
-          }
+          if (data[theirKey]) Object.entries(data[theirKey]).forEach(async ([key, c]) => {
+            if (c?.candidate && !_addedCandidates.has(key)) {
+              _addedCandidates.add(key);
+              try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch(e) {}
+            }
+          });
         }
       });
     }
 
     async function createOffer(roomName) {
-      const { ref, set, onDisconnect } = window._fb;
       setStatus('waiting', 'Ожидаем собеседника...');
       pc = buildPC(roomName, true);
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      const rRef = ref(db, `rooms/${roomName}`);
-      await set(rRef, { offer: { type: offer.type, sdp: offer.sdp }, callerName: currentUser.name });
-      onDisconnect(rRef).remove();
+      const rRef = window._fb.ref(db, `rooms/${roomName}`);
+      await window._fb.set(rRef, { offer: { type: offer.type, sdp: offer.sdp }, callerName: currentUser.name });
+      window._fb.onDisconnect(rRef).remove();
     }
 
     async function createAnswer(roomName, offerData) {
-      const { ref, set } = window._fb;
       pc = buildPC(roomName, false);
       await pc.setRemoteDescription(new RTCSessionDescription(offerData));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      await set(ref(db, `rooms/${roomName}/answer`), { type: answer.type, sdp: answer.sdp });
-      await set(ref(db, `rooms/${roomName}/calleeName`), currentUser.name);
+      await window._fb.set(window._fb.ref(db, `rooms/${roomName}/answer`), { type: answer.type, sdp: answer.sdp });
+      await window._fb.set(window._fb.ref(db, `rooms/${roomName}/calleeName`), currentUser.name);
     }
 
     function buildPC(roomName, asInitiator) {
-      const { ref, push } = window._fb;
       const connection = new RTCPeerConnection(ICE_SERVERS);
       const _stream = window.__processedStream || localStream;
-      _stream.getTracks().forEach(track => connection.addTrack(track, _stream));
+      _stream.getTracks().forEach(t => connection.addTrack(t, _stream));
       remoteStream = new MediaStream();
       $remoteAudio.srcObject = remoteStream;
-
-      connection.ontrack = (event) => {
-        event.streams[0].getTracks().forEach(t => remoteStream.addTrack(t));
+      connection.ontrack = (e) => {
+        e.streams[0].getTracks().forEach(t => remoteStream.addTrack(t));
         if (!inCall) { inCall = true; onConnected(); }
       };
-      connection.onicecandidate = (event) => {
-        if (event.candidate) {
-          const myKey = asInitiator ? 'iceCaller' : 'iceCallee';
-          push(ref(db, `rooms/${roomName}/${myKey}`), {
-            candidate: event.candidate.candidate,
-            sdpMid: event.candidate.sdpMid,
-            sdpMLineIndex: event.candidate.sdpMLineIndex
+      connection.onicecandidate = (e) => {
+        if (e.candidate) {
+          window._fb.push(window._fb.ref(db, `rooms/${roomName}/${asInitiator ? 'iceCaller' : 'iceCallee'}`), {
+            candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex
           });
         }
       };
@@ -696,10 +723,8 @@
 
     function onConnected() {
       setStatus('connected', 'Соединение установлено');
-      $avatars.classList.add('visible');
-      $controls.classList.add('visible');
-      $joinBtn.style.display = 'none';
-      setCallUI(true);
+      $avatars.classList.add('visible'); $controls.classList.add('visible');
+      $joinBtn.style.display = 'none'; setCallUI(true);
       setTimeout(startSpeakingDetection, 300);
     }
 
@@ -707,40 +732,26 @@
       setStatus('waiting', 'Собеседник отключился. Ждём...');
       $avatars.classList.remove('visible');
       document.getElementById('peerAvatar').innerHTML = '<span id="peerAvatarText">👤</span>';
-      $peerName.textContent = 'Собеседник';
-      inCall = false;
-      setCallUI(false);
-      stopSpeakingDetection();
+      $peerName.textContent = 'Собеседник'; inCall = false;
+      setCallUI(false); stopSpeakingDetection();
     }
 
     window.leaveCall = async function() {
       hasLeft = true; inCall = false; isInitiator = false;
-      if (roomRef && window._fb) {
-        try { window._fb.off(roomRef); } catch(e){}
-        try { await window._fb.remove(roomRef); } catch(e){}
-      }
+      if (roomRef && window._fb) { try { window._fb.off(roomRef); } catch(e){} try { await window._fb.remove(roomRef); } catch(e){} }
       roomRef = null;
       if (pc) { pc.close(); pc = null; }
       if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream = null; }
-      if (_rnnoiseProcessor) {
-        try { _rnnoiseProcessor.stopProcessing(); } catch(e) {}
-        _rnnoiseProcessor = null;
-      }
+      stopNoiseSuppression();
       window.__processedStream = null;
       $remoteAudio.srcObject = null;
-      $controls.classList.remove('visible');
-      $avatars.classList.remove('visible');
+      $controls.classList.remove('visible'); $avatars.classList.remove('visible');
       $peerAvatar.innerHTML = '<span id="peerAvatarText">👤</span>';
       $peerName.textContent = 'Собеседник';
-      setStatus('idle', 'Ты вышел из звонка');
-      setCallUI(false);
-      stopSpeakingDetection();
-      micMuted = false; deafened = false;
-      updateMicUI(); updateDeafUI();
-      $joinBtn.disabled = false;
-      $joinBtn.style.display = '';
-      $joinBtn.textContent = 'Войти обратно';
-      $joinBtn.className = 'btn-join secondary';
+      setStatus('idle', 'Ты вышел из звонка'); setCallUI(false); stopSpeakingDetection();
+      micMuted = false; deafened = false; updateMicUI(); updateDeafUI();
+      $joinBtn.disabled = false; $joinBtn.style.display = '';
+      $joinBtn.textContent = 'Войти обратно'; $joinBtn.className = 'btn-join secondary';
     };
 
     window.toggleMic = function() {
@@ -750,26 +761,20 @@
       updateMicUI();
     };
     function updateMicUI() {
-      if (micMuted) {
-        $micLabel.textContent = 'Микрофон выкл'; $micBtn.classList.add('active'); $myAvatar.classList.add('muted-self');
-      } else {
-        $micLabel.textContent = 'Микрофон'; $micBtn.classList.remove('active'); $myAvatar.classList.remove('muted-self');
-      }
+      if (micMuted) { $micLabel.textContent = 'Микрофон выкл'; $micBtn.classList.add('active'); $myAvatar.classList.add('muted-self'); }
+      else           { $micLabel.textContent = 'Микрофон';      $micBtn.classList.remove('active'); $myAvatar.classList.remove('muted-self'); }
     }
-
     window.toggleDeaf = function() { deafened = !deafened; $remoteAudio.muted = deafened; updateDeafUI(); };
 
     window.loadAvatar = async function(input) {
       const file = input.files[0]; if (!file) return;
       const reader = new FileReader();
       reader.onload = async (e) => {
-        const base64 = e.target.result;
-        document.getElementById('myAvatar').innerHTML = `<img src="${base64}" /><div class="avatar-upload-hint">📷</div>`;
-        localStorage.setItem('voiceAvatar', base64);
-        renderTopbar();
-        if (db && currentUser && !currentUser.isAdmin) {
-          try { await window._fb.set(window._fb.ref(db, `accounts/${currentUser.name}/avatar`), base64); } catch(ex) {}
-        }
+        const b64 = e.target.result;
+        document.getElementById('myAvatar').innerHTML = `<img src="${b64}" /><div class="avatar-upload-hint">📷</div>`;
+        localStorage.setItem('voiceAvatar', b64); renderTopbar();
+        if (db && currentUser && !currentUser.isAdmin)
+          try { await window._fb.set(window._fb.ref(db, `accounts/${currentUser.name}/avatar`), b64); } catch(ex) {}
       };
       reader.readAsDataURL(file);
     };
@@ -786,18 +791,18 @@
     })();
 
     // ─── SPEAKING DETECTION ───────────────────────────────────────────────────
-    let _audioCtx = null, _analyserLocal = null, _analyserRemote = null;
-    let _speakIntervalLocal = null, _speakIntervalRemote = null;
+    let _audioCtxVis = null, _analyserLocal = null, _analyserRemote = null;
+    let _spkIntLocal = null, _spkIntRemote = null;
 
     function startSpeakingDetection() {
       try {
-        _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const _srcStream = localStream || window.__processedStream;
-        if (_srcStream) {
-          const src = _audioCtx.createMediaStreamSource(_srcStream);
-          _analyserLocal = _audioCtx.createAnalyser(); _analyserLocal.fftSize = 512; src.connect(_analyserLocal);
+        _audioCtxVis = new (window.AudioContext || window.webkitAudioContext)();
+        const srcStream = localStream;
+        if (srcStream) {
+          const src = _audioCtxVis.createMediaStreamSource(srcStream);
+          _analyserLocal = _audioCtxVis.createAnalyser(); _analyserLocal.fftSize = 512; src.connect(_analyserLocal);
           const data = new Uint8Array(_analyserLocal.frequencyBinCount);
-          _speakIntervalLocal = setInterval(() => {
+          _spkIntLocal = setInterval(() => {
             if (!_analyserLocal) return;
             _analyserLocal.getByteFrequencyData(data);
             const vol = data.reduce((a,b)=>a+b,0) / data.length;
@@ -805,61 +810,49 @@
           }, 80);
         }
         if ($remoteAudio.srcObject) {
-          const src2 = _audioCtx.createMediaStreamSource($remoteAudio.srcObject);
-          _analyserRemote = _audioCtx.createAnalyser(); _analyserRemote.fftSize = 512; src2.connect(_analyserRemote);
+          const src2 = _audioCtxVis.createMediaStreamSource($remoteAudio.srcObject);
+          _analyserRemote = _audioCtxVis.createAnalyser(); _analyserRemote.fftSize = 512; src2.connect(_analyserRemote);
           const data2 = new Uint8Array(_analyserRemote.frequencyBinCount);
-          _speakIntervalRemote = setInterval(() => {
+          _spkIntRemote = setInterval(() => {
             if (!_analyserRemote) return;
             _analyserRemote.getByteFrequencyData(data2);
-            const vol2 = data2.reduce((a,b)=>a+b,0) / data2.length;
-            document.getElementById('peerAvatar').classList.toggle('speaking', vol2 > 8);
+            document.getElementById('peerAvatar').classList.toggle('speaking', data2.reduce((a,b)=>a+b,0)/data2.length > 8);
           }, 80);
         }
-      } catch(e) { console.warn('AudioContext error:', e); }
+      } catch(e) { console.warn('AudioContext speaking detection error:', e); }
     }
 
     function stopSpeakingDetection() {
-      clearInterval(_speakIntervalLocal); clearInterval(_speakIntervalRemote);
-      _speakIntervalLocal = null; _speakIntervalRemote = null;
-      if (_audioCtx) { try { _audioCtx.close(); } catch(e){} _audioCtx = null; }
+      clearInterval(_spkIntLocal); clearInterval(_spkIntRemote);
+      _spkIntLocal = null; _spkIntRemote = null;
+      if (_audioCtxVis) { try { _audioCtxVis.close(); } catch(e){} _audioCtxVis = null; }
       _analyserLocal = null; _analyserRemote = null;
       document.getElementById('myAvatar').classList.remove('speaking');
       document.getElementById('peerAvatar').classList.remove('speaking');
     }
 
     function setCallUI(active) {
-      const header = document.getElementById('mainHeader');
-      const room   = document.getElementById('roomCard');
-      if (header) header.style.display = active ? 'none' : '';
-      if (room)   room.style.display   = active ? 'none' : '';
+      const h = document.getElementById('mainHeader'), r = document.getElementById('roomCard');
+      if (h) h.style.display = active ? 'none' : '';
+      if (r) r.style.display = active ? 'none' : '';
     }
     function updateDeafUI() {
-      if (deafened) {
-        $deafIcon.textContent = '🔇'; $deafLabel.textContent = 'Звук выкл'; $deafBtn.classList.add('active');
-      } else {
-        $deafIcon.textContent = '🔊'; $deafLabel.textContent = 'Звук'; $deafBtn.classList.remove('active');
-      }
+      if (deafened) { $deafIcon.textContent = '🔇'; $deafLabel.textContent = 'Звук выкл'; $deafBtn.classList.add('active'); }
+      else          { $deafIcon.textContent = '🔊'; $deafLabel.textContent = 'Звук';      $deafBtn.classList.remove('active'); }
     }
     function setStatus(state, text) {
-      $statusText.textContent = text;
-      $dot.className = 'dot';
+      $statusText.textContent = text; $dot.className = 'dot';
       if (state==='waiting')   $dot.classList.add('waiting');
       if (state==='connected') $dot.classList.add('connected');
       if (state==='error')     $dot.classList.add('error');
     }
-    function showError(msg) {
-      $errorBox.textContent = msg; $errorBox.classList.add('visible');
-      setStatus('error','Ошибка'); $joinBtn.disabled = false;
-    }
+    function showError(msg) { $errorBox.textContent = msg; $errorBox.classList.add('visible'); setStatus('error','Ошибка'); $joinBtn.disabled = false; }
     function clearError() { $errorBox.textContent = ''; $errorBox.classList.remove('visible'); }
-
     window.toggleRoomHint = function() {
-      const hint = document.getElementById('roomHint');
-      const btn  = document.getElementById('hintBtn');
-      const open = hint.style.display === 'none';
-      hint.style.display = open ? 'block' : 'none';
-      btn.style.borderColor = open ? 'var(--accent)' : 'var(--muted)';
-      btn.style.color       = open ? 'var(--accent)' : 'var(--muted)';
+      const h = document.getElementById('roomHint'), b = document.getElementById('hintBtn');
+      const open = h.style.display === 'none';
+      h.style.display = open ? 'block' : 'none';
+      b.style.borderColor = b.style.color = open ? 'var(--accent)' : 'var(--muted)';
     };
   </script>
 </body>
