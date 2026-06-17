@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>виталик</title>
   <style>
-    /* Твой полный CSS (без изменений) */
+    /* Твой оригинальный CSS без изменений */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
       --bg: #0e0e10; --surface: #18181b; --surface2: #222228;
@@ -278,8 +278,8 @@
     const $peerName     = $('peerName');
     const $roomInput    = $('roomInput');
     const $topbarRight  = $('topbarRight');
-    const $loginOverlay = $('loginOverlay');
-    const $managerOverlay = $('managerOverlay');
+    const $loginOverlay       = $('loginOverlay');
+    const $managerOverlay     = $('managerOverlay');
     const $avatarPanelOverlay = $('avatarPanelOverlay');
 
     async function sha256(str) {
@@ -459,25 +459,9 @@
 
     function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-    // Адаптивный микрофон (мягкие constraints для телефона)
+    // Простой запрос микрофона (работает везде, шумодав включается браузером)
     async function getAudioStream() {
-      const attempts = [
-        { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false },
-        { audio: { echoCancellation: true, noiseSuppression: true }, video: false },
-        { audio: { echoCancellation: true }, video: false },
-        { audio: true, video: false }  // самый простой
-      ];
-      let lastError = null;
-      for (const constraints of attempts) {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia(constraints);
-          return stream;
-        } catch (e) {
-          lastError = e;
-          continue;
-        }
-      }
-      throw lastError || new Error('Микрофон недоступен');
+      return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     }
 
     window.joinCall = async function() {
@@ -489,7 +473,6 @@
       setStatus('waiting', 'Подключаемся...');
       $joinBtn.disabled = true;
 
-      // Пробуждаем аудио (важно для мобильных)
       $remoteAudio.load();
       $remoteAudio.play().catch(() => {});
 
@@ -502,7 +485,6 @@
         let msg = 'Нет доступа к микрофону. ';
         if (e.name === 'NotAllowedError') msg += 'Разреши доступ в настройках браузера.';
         else if (e.name === 'NotFoundError') msg += 'Микрофон не найден.';
-        else if (e.name === 'NotReadableError') msg += 'Микрофон занят.';
         else msg += e.message;
         showError(msg);
         $joinBtn.disabled = false;
@@ -537,7 +519,6 @@
       _signalingBusy = false;
       _addedCandidates = new Set();
 
-      // При уходе очищаем комнату
       window.addEventListener('beforeunload', () => {
         if (roomRef) remove(roomRef);
       });
@@ -645,7 +626,6 @@
       $avatars.classList.add('visible'); $controls.classList.add('visible');
       $joinBtn.style.display = 'none'; setCallUI(true);
       syncMyStatus();
-      // Ещё раз принудительно воспроизводим (обход политики)
       $remoteAudio.play().catch(() => {});
       startSpeakingDetection();
     }
@@ -663,7 +643,7 @@
       hasLeft = true; inCall = false; isInitiator = false;
       if (roomRef) { 
         try { off(roomRef); } catch(e){} 
-        try { await remove(roomRef); } catch(e){} // очищаем комнату при выходе
+        try { await remove(roomRef); } catch(e){}
       }
       roomRef = null;
       if (pc) { pc.close(); pc = null; }
@@ -740,7 +720,7 @@
         const b64 = e.target.result;
         $myAvatar.innerHTML = `<img src="${b64}" /><div class="avatar-upload-hint">📷</div>`;
         localStorage.setItem(avatarKey(), b64); renderTopbar();
-        if (db && currentUser)
+        if (db && currentUser)  // разрешено всем, включая админа
           try { await set(ref(db, `accounts/${currentUser.name}/avatar`), b64); } catch(ex) {}
       };
       reader.readAsDataURL(file);
