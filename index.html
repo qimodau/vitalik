@@ -221,11 +221,8 @@
   <script>
 
 var createRNNWasmModuleSync = (() => {
-  var _scriptDir = import.meta.url;
-  
-  return (
-function(createRNNWasmModuleSync) {
-  createRNNWasmModuleSync = createRNNWasmModuleSync || {};
+  var _scriptDir = "";  // ← заменили import.meta.url
+  return (function(createRNNWasmModuleSync) {
 
 var Module = typeof createRNNWasmModuleSync != "undefined" ? createRNNWasmModuleSync : {};
 
