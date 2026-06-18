@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>виталик</title>
   <style>
-    /* Твой полный CSS без изменений */
+    /* Твой полный CSS (без изменений) */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
       --bg: #0e0e10; --surface: #18181b; --surface2: #222228;
@@ -258,6 +258,7 @@
     let roomRef = null, isInitiator = false;
     let micMuted = false, deafened = false, inCall = false, hasLeft = false;
     let currentUser = null;
+    let audioCtx = null, localSource = null, processorNode = null;
 
     const $ = (id) => document.getElementById(id);
     const $joinBtn      = $('joinBtn');
@@ -287,7 +288,6 @@
       return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
     }
 
-    // Определяем мобильное устройство
     function isMobile() {
       return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
              (navigator.maxTouchPoints > 0 && window.innerWidth < 768);
@@ -402,7 +402,7 @@
         document.getElementById('panelAvatarPreview').innerHTML = `<img src="${b64}" style="width:100%;height:100%;object-fit:cover">`;
         renderTopbar();
         $myAvatar.innerHTML = `<img src="${b64}" /><div class="avatar-upload-hint">📷</div>`;
-        if (db && currentUser)  // админ тоже может
+        if (db && currentUser)
           try { await set(ref(db, `accounts/${currentUser.name}/avatar`), b64); } catch(ex) {}
       };
       reader.readAsDataURL(file);
@@ -465,13 +465,13 @@
 
     function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-    // Адаптивный запрос микрофона: на ПК с шумодавом, на телефоне без
+    // Адаптивный захват аудио
     async function getAudioStream() {
       if (isMobile()) {
-        // Для телефонов – чистый звук, чтобы не резался голос
+        // Телефон: чистый звук, системный шумодав сам сработает
         return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       } else {
-        // Для ПК – с обработками (шумодав, эхо)
+        // ПК: запрашиваем максимальные флаги
         const attempts = [
           { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false },
           { audio: { echoCancellation: true, noiseSuppression: true }, video: false },
@@ -482,6 +482,34 @@
           try { return await navigator.mediaDevices.getUserMedia(constraints); } catch (e) { continue; }
         }
         throw new Error('Микрофон недоступен');
+      }
+    }
+
+    // Дополнительная обработка звука на ПК: high-pass + компрессор
+    function applyAudioProcessing(stream) {
+      if (isMobile() || !stream) return stream; // на телефоне не трогаем
+      try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioCtx.createMediaStreamSource(stream);
+        const highpass = audioCtx.createBiquadFilter();
+        highpass.type = 'highpass';
+        highpass.frequency.value = 200; // убираем гул ниже 200 Гц
+        const compressor = audioCtx.createDynamicsCompressor();
+        compressor.threshold.value = -50;
+        compressor.knee.value = 40;
+        compressor.ratio.value = 12;
+        compressor.attack.value = 0.003;
+        compressor.release.value = 0.25;
+        const dest = audioCtx.createMediaStreamDestination();
+        source.connect(highpass);
+        highpass.connect(compressor);
+        compressor.connect(dest);
+        // Останавливаем оригинальные дорожки
+        stream.getAudioTracks().forEach(track => track.stop());
+        return dest.stream;
+      } catch(e) {
+        console.warn('Не удалось применить аудиофильтр:', e);
+        return stream;
       }
     }
 
@@ -498,7 +526,9 @@
       $remoteAudio.play().catch(() => {});
 
       try {
-        localStream = await getAudioStream();
+        let rawStream = await getAudioStream();
+        // Применяем фильтр только на ПК
+        localStream = applyAudioProcessing(rawStream);
         micMuted = false;
         localStream.getAudioTracks().forEach(t => { t.enabled = true; });
       } catch(e) {
@@ -669,6 +699,7 @@
       roomRef = null;
       if (pc) { pc.close(); pc = null; }
       if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream = null; }
+      if (audioCtx) { audioCtx.close(); audioCtx = null; }
       $remoteAudio.srcObject = null;
       
       $controls.classList.remove('visible'); $avatars.classList.remove('visible');
@@ -741,7 +772,7 @@
         const b64 = e.target.result;
         $myAvatar.innerHTML = `<img src="${b64}" /><div class="avatar-upload-hint">📷</div>`;
         localStorage.setItem(avatarKey(), b64); renderTopbar();
-        if (db && currentUser)  // админ тоже может
+        if (db && currentUser)
           try { await set(ref(db, `accounts/${currentUser.name}/avatar`), b64); } catch(ex) {}
       };
       reader.readAsDataURL(file);
