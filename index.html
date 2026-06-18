@@ -513,13 +513,16 @@
         const ctx = new AudioContext({ sampleRate: 48000 });
         const src = ctx.createMediaStreamSource(rawStream);
 
+        // Убеждаемся что AudioContext не suspended (Android часто suspend-ит)
+        if (ctx.state === 'suspended') await ctx.resume();
+
         // Анализатор для измерения громкости (gate)
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 512;
         analyser.smoothingTimeConstant = 0.3;
         const freqData = new Uint8Array(analyser.frequencyBinCount);
 
-        // Gain node — им управляет гейт
+        // Gain node — им управляет гейт. Начинаем ОТКРЫТЫМ чтобы не резать первые секунды
         const gateGain = ctx.createGain();
         gateGain.gain.value = 1;
 
@@ -537,15 +540,27 @@
         const dest = ctx.createMediaStreamDestination();
         compressor.connect(dest);
 
+        // Проверяем что поток реально содержит треки
+        if (dest.stream.getAudioTracks().length === 0) {
+          throw new Error('dest.stream пустой — AudioContext не дал треков');
+        }
+
         // Порог гейта: Android — 35 (как ты измерил), ПК — 18 (клавиатура ~12-15)
         const GATE_THRESHOLD = isAndroid ? 35 : 18;
-        const HOLD_MS = 180; // держим открытым X мс после того как голос стих
-        let gateOpen = false;
+        const HOLD_MS = 200;
+        let gateOpen = true;
         let holdUntil = 0;
+        // Задержка запуска гейта — даём 1.5с на инициализацию AudioContext
+        let gateActive = false;
+        setTimeout(() => { gateActive = true; }, 1500);
 
         const gateInterval = setInterval(() => {
+          if (!gateActive) return;
+          // Если контекст снова suspended — resume
+          if (ctx.state === 'suspended') { ctx.resume(); return; }
+
           analyser.getByteFrequencyData(freqData);
-          // Смотрим только голосовые частоты: ~80Hz–4kHz (индексы ~2–85 при fftSize=512, sr=48k)
+          // Голосовые частоты: ~80Hz–4kHz
           let sum = 0;
           for (let i = 2; i < 86; i++) sum += freqData[i];
           const vol = sum / 84;
@@ -555,11 +570,11 @@
             holdUntil = now + HOLD_MS;
             if (!gateOpen) {
               gateOpen = true;
-              gateGain.gain.setTargetAtTime(1, ctx.currentTime, 0.008); // плавно открываем
+              gateGain.gain.setTargetAtTime(1, ctx.currentTime, 0.008);
             }
           } else if (now > holdUntil && gateOpen) {
             gateOpen = false;
-            gateGain.gain.setTargetAtTime(0, ctx.currentTime, 0.025); // плавно закрываем
+            gateGain.gain.setTargetAtTime(0, ctx.currentTime, 0.025);
           }
         }, 20);
 
@@ -595,6 +610,8 @@
     }
 
     async function startWebRTC(roomName) {
+      // Снимаем старый listener если был (важно при "Войти обратно")
+      if (roomRef && window._fb) { try { window._fb.off(roomRef); } catch(e){} }
       roomRef = window._fb.ref(db, `rooms/${roomName}`);
       _signalingBusy = false; _addedCandidates = new Set();
 
@@ -658,6 +675,7 @@
       const patchedSdp = patchSdp(offer.sdp);
       await pc.setLocalDescription({ type: offer.type, sdp: patchedSdp });
       const rRef = window._fb.ref(db, `rooms/${roomName}`);
+      // Полностью перезаписываем комнату — убираем мусор от прошлого сеанса
       await window._fb.set(rRef, { 
         offer: { type: offer.type, sdp: patchedSdp }, 
         callerName: currentUser.name,
@@ -740,17 +758,42 @@
       startDebug();
     }
 
+    let _autoReconnectTimer = null;
+
     function onPeerLeft() {
-      setStatus('waiting', 'Собеседник отключился. Ждём...');
+      if (pc) { try { pc.close(); } catch(e){} pc = null; }
+      inCall = false; isInitiator = false; _signalingBusy = false; _addedCandidates = new Set();
+      stopSpeakingDetection();
       $avatars.classList.remove('visible');
       document.getElementById('peerAvatar').innerHTML = '<span id="peerAvatarText">👤</span>';
       document.getElementById('peerBadges').innerHTML = '';
-      $peerName.textContent = 'Собеседник'; inCall = false;
-      setCallUI(false); stopSpeakingDetection();
+      $peerName.textContent = 'Собеседник';
+      setCallUI(false);
+
+      if (hasLeft) return;
+
+      // Авто-переподключение: пересоздаём WebRTC через 2 секунды не трогая микрофон
+      setStatus('waiting', 'Переподключение...');
+      clearTimeout(_autoReconnectTimer);
+      _autoReconnectTimer = setTimeout(async () => {
+        if (hasLeft || !localStream || !db) return;
+        const roomName = $roomInput.value;
+        setStatus('waiting', 'Ожидаем собеседника...');
+        try {
+          // Чистим старую комнату в Firebase если мы были инициатором
+          if (roomRef && window._fb) { try { window._fb.off(roomRef); } catch(e){} roomRef = null; }
+          await startWebRTC(roomName);
+        } catch(e) {
+          setStatus('error', 'Не удалось переподключиться');
+          setCallUI(false);
+          $joinBtn.disabled = false; $joinBtn.style.display = '';
+        }
+      }, 2000);
     }
 
     window.leaveCall = async function() {
       hasLeft = true; inCall = false; isInitiator = false;
+      clearTimeout(_autoReconnectTimer);
       if (roomRef && window._fb) { try { window._fb.off(roomRef); } catch(e){} }
       roomRef = null;
       if (pc) { pc.close(); pc = null; }
