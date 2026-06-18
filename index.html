@@ -510,7 +510,7 @@
       // Работает на всех платформах: на Android убирает шум без нативного шумоподава,
       // на ПК убирает клавиатуру/мышь которые нативный шумоподав пропускает.
       try {
-        const ctx = new AudioContext({ sampleRate: 48000 });
+        const ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
         const src = ctx.createMediaStreamSource(rawStream);
 
         // Убеждаемся что AudioContext не suspended (Android часто suspend-ит)
@@ -519,7 +519,7 @@
         // Анализатор для измерения громкости (gate)
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 512;
-        analyser.smoothingTimeConstant = 0.3;
+        analyser.smoothingTimeConstant = 0; // без сглаживания — меньше задержка
         const freqData = new Uint8Array(analyser.frequencyBinCount);
 
         // Gain node — им управляет гейт. Начинаем ОТКРЫТЫМ чтобы не резать первые секунды
@@ -545,43 +545,80 @@
           throw new Error('dest.stream пустой — AudioContext не дал треков');
         }
 
-        // Порог гейта: Android — 35 (как ты измерил), ПК — 18 (клавиатура ~12-15)
-        const GATE_THRESHOLD = isAndroid ? 35 : 18;
-        const HOLD_MS = 200;
+        const HOLD_MS = 220;
         let gateOpen = true;
         let holdUntil = 0;
-        // Задержка запуска гейта — даём 1.5с на инициализацию AudioContext
         let gateActive = false;
         setTimeout(() => { gateActive = true; }, 1500);
 
-        const gateInterval = setInterval(() => {
-          if (!gateActive) return;
-          // Если контекст снова suspended — resume
-          if (ctx.state === 'suspended') { ctx.resume(); return; }
+        if (isAndroid) {
+          // ── Android: простой порог по голосовым частотам ──────────────────
+          const GATE_THRESHOLD = 22; // снизили с 35
 
-          analyser.getByteFrequencyData(freqData);
-          // Голосовые частоты: ~80Hz–4kHz
-          let sum = 0;
-          for (let i = 2; i < 86; i++) sum += freqData[i];
-          const vol = sum / 84;
-
-          const now = Date.now();
-          if (vol >= GATE_THRESHOLD) {
-            holdUntil = now + HOLD_MS;
-            if (!gateOpen) {
-              gateOpen = true;
-              gateGain.gain.setTargetAtTime(1, ctx.currentTime, 0.008);
+          const gateInterval = setInterval(() => {
+            if (!gateActive) return;
+            if (ctx.state === 'suspended') { ctx.resume(); return; }
+            analyser.getByteFrequencyData(freqData);
+            let sum = 0;
+            for (let i = 2; i < 86; i++) sum += freqData[i];
+            const vol = sum / 84;
+            const now = Date.now();
+            if (vol >= GATE_THRESHOLD) {
+              holdUntil = now + HOLD_MS;
+              if (!gateOpen) { gateOpen = true; gateGain.gain.setTargetAtTime(1, ctx.currentTime, 0.008); }
+            } else if (now > holdUntil && gateOpen) {
+              gateOpen = false; gateGain.gain.setTargetAtTime(0, ctx.currentTime, 0.025);
             }
-          } else if (now > holdUntil && gateOpen) {
-            gateOpen = false;
-            gateGain.gain.setTargetAtTime(0, ctx.currentTime, 0.025);
-          }
-        }, 20);
+          }, 20);
+          window._gateInterval = gateInterval;
+
+        } else {
+          // ── ПК: детектор импульсов ────────────────────────────────────────
+          // Клавиатура/мышь = резкий скачок громкости за 1-2 тика и сразу спад.
+          // Голос = громкость держится 100мс+.
+          // Алгоритм: смотрим на скорость изменения (dVol/dt).
+          // Если vol резко прыгнул вверх И быстро упал — импульс, блокируем на 120мс.
+          // Если vol растёт плавно или держится — голос, открываем.
+          const VOICE_THRESHOLD = 14;   // минимальная громкость чтобы вообще что-то делать
+          const IMPULSE_RISE = 18;      // насколько должен скакнуть за 20мс чтобы считаться импульсом
+          const IMPULSE_BLOCK_MS = 130; // блокируем после обнаружения импульса
+          let prevVol = 0;
+          let blockedUntil = 0;
+          let voiceHoldUntil = 0;
+
+          const gateInterval = setInterval(() => {
+            if (!gateActive) return;
+            if (ctx.state === 'suspended') { ctx.resume(); return; }
+            analyser.getByteFrequencyData(freqData);
+            // Голосовые частоты
+            let sum = 0;
+            for (let i = 2; i < 86; i++) sum += freqData[i];
+            const vol = sum / 84;
+            const now = Date.now();
+            const dVol = vol - prevVol;
+            prevVol = vol;
+
+            // Резкий скачок вверх = импульс (клик/стук)
+            if (dVol > IMPULSE_RISE && vol > VOICE_THRESHOLD) {
+              blockedUntil = now + IMPULSE_BLOCK_MS;
+            }
+
+            const blocked = now < blockedUntil;
+
+            if (!blocked && vol >= VOICE_THRESHOLD) {
+              voiceHoldUntil = now + HOLD_MS;
+              if (!gateOpen) { gateOpen = true; gateGain.gain.setTargetAtTime(1, ctx.currentTime, 0.008); }
+            } else if (now > voiceHoldUntil && gateOpen) {
+              gateOpen = false; gateGain.gain.setTargetAtTime(0, ctx.currentTime, 0.030);
+            }
+          }, 20);
+          window._gateInterval = gateInterval;
+        }
 
         window._androidAudioCtx = ctx;
         window._androidRawStream = rawStream;
-        window._gateInterval = gateInterval;
         localStream = dest.stream;
+
       } catch(ctxErr) {
         console.warn('AudioContext gate не сработал, используем rawStream:', ctxErr);
         window._androidAudioCtx = null;
@@ -660,12 +697,19 @@
       });
     }
 
-    // Патчим SDP: Opus 32kHz моно, без DTX, битрейт 32kbps — чистый голос без артефактов
+    // Патчим SDP: меньше задержка (ptime=10), без DTX, нормальный битрейт
     function patchSdp(sdp) {
-      // Добавляем fmtp для Opus: usedtx=0 (без тишины), stereo=0, maxaveragebitrate=32000
-      return sdp
-        .replace(/(a=fmtp:111 .+)/, '$1;usedtx=0;stereo=0;maxaveragebitrate=32000')
-        .replace(/a=fmtp:111 (?!.*usedtx)(.*)/, 'a=fmtp:111 $1;usedtx=0;stereo=0;maxaveragebitrate=32000');
+      let s = sdp;
+      // Opus параметры: без DTX, без стерео, битрейт 32kbps
+      s = s.replace(/(a=fmtp:111 )(.*)/g, (_, prefix, params) => {
+        if (params.includes('usedtx')) return prefix + params;
+        return `${prefix}${params};usedtx=0;stereo=0;maxaveragebitrate=32000`;
+      });
+      // ptime=10 — пакет каждые 10мс вместо 20мс, вдвое меньше буферизация
+      if (!s.includes('a=ptime:')) {
+        s = s.replace(/(m=audio.*\r\n)/g, '$1a=ptime:10\r\na=maxptime:10\r\n');
+      }
+      return s;
     }
 
     async function createOffer(roomName) {
@@ -708,7 +752,18 @@
       remoteStream = new MediaStream();
       $remoteAudio.srcObject = remoteStream;
       connection.ontrack = (e) => {
-        e.streams[0].getTracks().forEach(t => remoteStream.addTrack(t));
+        e.streams[0].getTracks().forEach(t => {
+          remoteStream.addTrack(t);
+          // Минимизируем jitter buffer — основная причина задержки при разговоре
+          if (connection.getReceivers) {
+            const receivers = connection.getReceivers();
+            receivers.forEach(r => {
+              if (r.track === t && r.jitterBufferTarget !== undefined) {
+                r.jitterBufferTarget = 0; // браузер сам выберет минимум
+              }
+            });
+          }
+        });
         if (!inCall) { inCall = true; onConnected(); }
       };
       connection.onicecandidate = (e) => {
@@ -977,7 +1032,7 @@
             `Sample rate: ${s.sampleRate || _dbgCtx.sampleRate} Hz`;
         }
         document.getElementById('dbgAndroid').textContent =
-          `Gate: порог ${/android/i.test(navigator.userAgent) ? 35 : 18} | bypass: ${window._androidAudioCtx ? '✅' : '❌'}`;
+          `Gate: ${/android/i.test(navigator.userAgent) ? 'Android (порог 22)' : 'ПК (детектор импульсов)'} | ctx: ${window._androidAudioCtx ? '✅' : '❌'}`;
 
         // Визуализация громкости
         const canvas = document.getElementById('dbgCanvas');
