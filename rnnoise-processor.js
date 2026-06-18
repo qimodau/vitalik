@@ -1,8 +1,9 @@
 /**
  * rnnoise-processor.js
  * AudioWorklet для шумоподавления через RNNoise.
- * Использует локальный ES-модуль rnnoise.js (он сам загружает .wasm).
+ * Использует статический импорт локального модуля rnnoise.js.
  */
+import RNNoise from './rnnoise.js';
 
 const FRAME = 480; // 10 мс при 48 кГц
 
@@ -14,26 +15,13 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
     this._inputBuf = [];
     this._outputBuf = [];
 
-    this.port.onmessage = (e) => {
-      if (e.data.type === 'init') this._init();
-    };
-  }
-
-  async _init() {
     try {
-      // Динамический импорт локального модуля
-      const module = await import('./rnnoise.js');
-      const RNNoise = module.default; // или module, если экспорт не default
-      // Проверяем наличие метода createState
-      if (typeof RNNoise.createState !== 'function') {
-        throw new Error('RNNoise.createState is not a function');
-      }
+      // Инициализация RNNoise происходит синхронно при импорте.
+      // createState() — синхронная функция.
       this._state = RNNoise.createState();
       this._ready = true;
-      this.port.postMessage({ type: 'ready', success: true });
     } catch (e) {
-      console.error('[RNNoise processor] init error:', e);
-      this.port.postMessage({ type: 'ready', success: false, error: String(e) });
+      console.error('[RNNoise processor] конструктор ошибка:', e);
     }
   }
 
