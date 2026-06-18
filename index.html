@@ -492,9 +492,9 @@
 
     async function initFirebase() {
       const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
-      const { getDatabase, ref, set, get, onValue, off, push, remove, onDisconnect } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js');
+      const { getDatabase, ref, set, get, onValue, off, push, remove, onDisconnect, runTransaction } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js');
       db = getDatabase(initializeApp(getFirebaseConfig()));
-      window._fb = { ref, set, get, onValue, off, push, remove, onDisconnect };
+      window._fb = { ref, set, get, onValue, off, push, remove, onDisconnect, runTransaction };
     }
 
     // ─── CALL & AUDIO PIPELINE ────────────────────────────────────────────────
@@ -669,7 +669,6 @@
 
     async function startWebRTC(roomName) {
       console.log('startWebRTC вызван для комнаты:', roomName);
-      // Отписываемся от старого roomRef, если есть
       if (roomRef && window._fb) {
         try { window._fb.off(roomRef); } catch(e) {}
         roomRef = null;
@@ -678,63 +677,66 @@
       _signalingBusy = false;
       _addedCandidates = new Set();
 
+      // Транзакция для атомарного захвата роли
+      const result = await window._fb.runTransaction(roomRef, (currentData) => {
+        if (currentData === null) {
+          // Комната пуста, становимся инициатором
+          return {
+            offer: null,
+            answer: null,
+            callerName: currentUser.name,
+            calleeName: null,
+            callerMicMuted: micMuted,
+            calleeMicMuted: null,
+            callerDeafened: deafened,
+            calleeDeafened: null,
+            iceCaller: null,
+            iceCallee: null
+          };
+        } else if (!currentData.offer) {
+          // Нет offer (не должно быть), становимся инициатором
+          return { ...currentData, callerName: currentUser.name };
+        } else if (!currentData.answer) {
+          // Есть offer, нет answer — становимся отвечающим
+          return { ...currentData, calleeName: currentUser.name };
+        } else {
+          // Уже есть и offer, и answer — комната занята
+          return; // undefined отменяет транзакцию
+        }
+      });
+
+      if (!result.committed) {
+        showError('Комната уже занята двумя участниками.');
+        $joinBtn.disabled = false;
+        return;
+      }
+
+      const data = result.snapshot.val();
+      if (!data.offer) {
+        // Мы инициатор
+        isInitiator = true;
+        console.log('Мы инициатор, создаём offer');
+        await createOffer(roomName);
+      } else if (!data.answer) {
+        // Мы отвечающий
+        isInitiator = false;
+        console.log('Мы отвечающий, создаём answer');
+        await createAnswer(roomName, data.offer);
+      } else {
+        // Не должно случиться
+        return;
+      }
+
+      // Подписываемся на изменения (ICE-кандидаты, статусы)
       window._fb.onValue(roomRef, async (snap) => {
         if (hasLeft) return;
-        const data = snap.val();
-        console.log('onValue data:', data);
-
-        if (data) {
-          const peerName = isInitiator ? data.calleeName : data.callerName;
-          if (peerName && peerName !== $peerName.textContent) {
-            await setPeerNameAndAvatar(peerName);
-          }
-
-          const peerMicMuted = isInitiator ? data.calleeMicMuted : data.callerMicMuted;
-          const peerDeafened = isInitiator ? data.calleeDeafened : data.callerDeafened;
-          const $peerBadges = document.getElementById('peerBadges');
-          if ($peerBadges) {
-            let peerHtml = '';
-            if (peerMicMuted) peerHtml += `<div class="badge">${ICON_MIC_OFF_SM}</div>`;
-            if (peerDeafened) peerHtml += '<div class="badge">🔇</div>';
-            $peerBadges.innerHTML = peerHtml;
-          }
-        }
-
-        if (!data || !data.offer) {
-          // Нет оффера — мы инициатор
-          if (inCall || _signalingBusy || isInitiator) return;
-          _signalingBusy = true;
-          isInitiator = true;
-          console.log('Создаём оффер как инициатор');
-          await createOffer(roomName);
-          _signalingBusy = false;
-        } else if (data.offer && !data.answer && !isInitiator) {
-          // Есть оффер, нет ответа — мы отвечаем
-          if (inCall || _signalingBusy) return;
-          _signalingBusy = true;
-          isInitiator = false;
-          console.log('Создаём ответ на оффер');
-          await createAnswer(roomName, data.offer);
-          _signalingBusy = false;
-        } else if (data.answer && data.offer && pc) {
-          // Когда есть и оффер, и ответ — применяем удалённое описание в зависимости от роли
-          const amCaller = currentUser.name === data.callerName;
-          if (amCaller && pc.signalingState !== 'stable') {
-            // Мы инициатор, должны применить answer
-            console.log('Устанавливаем удалённое описание (ответ) для инициатора');
-            await pc.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(e => console.warn('setRemoteDescription answer error:', e));
-          } else if (!amCaller && pc.signalingState !== 'stable') {
-            // Мы отвечающий, должны применить offer (обычно уже применён, но на всякий случай)
-            console.log('Устанавливаем удалённое описание (оффер) для отвечающего');
-            await pc.setRemoteDescription(new RTCSessionDescription(data.offer)).catch(e => console.warn('setRemoteDescription offer error:', e));
-          }
-        }
-
-        // Добавление ICE-кандидатов
-        if (data && pc) {
+        const newData = snap.val();
+        console.log('onValue new data:', newData);
+        if (newData && pc) {
+          // Добавляем ICE-кандидаты от собеседника
           const theirKey = isInitiator ? 'iceCallee' : 'iceCaller';
-          if (data[theirKey]) {
-            Object.entries(data[theirKey]).forEach(async ([key, c]) => {
+          if (newData[theirKey]) {
+            Object.entries(newData[theirKey]).forEach(async ([key, c]) => {
               if (c?.candidate && !_addedCandidates.has(key)) {
                 _addedCandidates.add(key);
                 try {
@@ -744,6 +746,20 @@
                 }
               }
             });
+          }
+          // Обновляем имя и бейджи собеседника
+          const peerName = isInitiator ? newData.calleeName : newData.callerName;
+          if (peerName && peerName !== $peerName.textContent) {
+            await setPeerNameAndAvatar(peerName);
+          }
+          const peerMicMuted = isInitiator ? newData.calleeMicMuted : newData.callerMicMuted;
+          const peerDeafened = isInitiator ? newData.calleeDeafened : newData.callerDeafened;
+          const $peerBadges = document.getElementById('peerBadges');
+          if ($peerBadges) {
+            let peerHtml = '';
+            if (peerMicMuted) peerHtml += `<div class="badge">${ICON_MIC_OFF_SM}</div>`;
+            if (peerDeafened) peerHtml += '<div class="badge">🔇</div>';
+            $peerBadges.innerHTML = peerHtml;
           }
         }
       });
@@ -769,9 +785,8 @@
       await pc.setLocalDescription({ type: offer.type, sdp: patchedSdp });
       console.log('Оффер создан, устанавливаем в Firebase');
       const rRef = window._fb.ref(db, `rooms/${roomName}`);
-      await window._fb.set(rRef, {
+      await window._fb.update(rRef, {
         offer: { type: offer.type, sdp: patchedSdp },
-        callerName: currentUser.name,
         callerMicMuted: micMuted,
         callerDeafened: deafened
       });
@@ -786,16 +801,16 @@
       await pc.setLocalDescription({ type: answer.type, sdp: patchedSdp });
       console.log('Ответ создан, устанавливаем в Firebase');
       const rRef = window._fb.ref(db, `rooms/${roomName}`);
-      await window._fb.set(window._fb.ref(db, `rooms/${roomName}/answer`), { type: answer.type, sdp: patchedSdp });
-      await window._fb.set(window._fb.ref(db, `rooms/${roomName}/calleeName`), currentUser.name);
-      await window._fb.set(window._fb.ref(db, `rooms/${roomName}/calleeMicMuted`), micMuted);
-      await window._fb.set(window._fb.ref(db, `rooms/${roomName}/calleeDeafened`), deafened);
+      await window._fb.update(rRef, {
+        answer: { type: answer.type, sdp: patchedSdp },
+        calleeMicMuted: micMuted,
+        calleeDeafened: deafened
+      });
     }
 
     function buildPC(roomName, asInitiator) {
       const connection = new RTCPeerConnection(ICE_SERVERS);
 
-      // Добавляем локальные треки
       localStream.getTracks().forEach(t => {
         connection.addTrack(t, localStream);
         console.log('Добавлен трек:', t.kind, t.id);
