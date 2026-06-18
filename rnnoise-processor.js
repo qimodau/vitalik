@@ -3,7 +3,7 @@
  * AudioWorklet для шумоподавления через RNNoise.
  * Использует статический импорт локального модуля rnnoise.js.
  */
-import RNNoise from './rnnoise.js';
+import RNNoiseModule from './rnnoise.js';
 
 const FRAME = 480; // 10 мс при 48 кГц
 
@@ -16,9 +16,15 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
     this._outputBuf = [];
 
     try {
-      // Инициализация RNNoise происходит синхронно при импорте.
-      // createState() — синхронная функция.
-      this._state = RNNoise.createState();
+      // RNNoise экспортирует фабричную функцию. Вызываем её.
+      const rnnoise = typeof RNNoiseModule === 'function' 
+        ? RNNoiseModule() 
+        : RNNoiseModule.default ? RNNoiseModule.default() : RNNoiseModule;
+      
+      if (typeof rnnoise.createState !== 'function') {
+        throw new Error('createState not found in RNNoise API');
+      }
+      this._state = rnnoise.createState();
       this._ready = true;
     } catch (e) {
       console.error('[RNNoise processor] конструктор ошибка:', e);
