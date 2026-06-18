@@ -481,21 +481,18 @@
       setStatus('waiting', 'Подключаемся...');
       $joinBtn.disabled = true;
 
+      const isAndroid = /android/i.test(navigator.userAgent);
+
       try {
-        // Пробуем с полными ограничениями
-        localStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-            channelCount: 1
-          },
-          video: false
-        });
+        // На Android НЕ используем обработку — она давит голос и оставляет только стуки
+        const audioConstraints = isAndroid
+          ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 }
+          : { echoCancellation: true,  noiseSuppression: true,  autoGainControl: true,  channelCount: 1 };
+
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
       } catch(e1) {
         console.warn('getUserMedia с constraints не сработал, пробуем fallback:', e1);
         try {
-          // Fallback: просто audio:true — работает на любом iOS/Android
           localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
         } catch(e2) {
           console.warn('Ошибка доступа к микрофону:', e2);
@@ -573,14 +570,23 @@
       });
     }
 
+    // Патчим SDP: Opus 32kHz моно, без DTX, битрейт 32kbps — чистый голос без артефактов
+    function patchSdp(sdp) {
+      // Добавляем fmtp для Opus: usedtx=0 (без тишины), stereo=0, maxaveragebitrate=32000
+      return sdp
+        .replace(/(a=fmtp:111 .+)/, '$1;usedtx=0;stereo=0;maxaveragebitrate=32000')
+        .replace(/a=fmtp:111 (?!.*usedtx)(.*)/, 'a=fmtp:111 $1;usedtx=0;stereo=0;maxaveragebitrate=32000');
+    }
+
     async function createOffer(roomName) {
       setStatus('waiting', 'Ожидаем собеседника...');
       pc = buildPC(roomName, true);
       const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
+      const patchedSdp = patchSdp(offer.sdp);
+      await pc.setLocalDescription({ type: offer.type, sdp: patchedSdp });
       const rRef = window._fb.ref(db, `rooms/${roomName}`);
       await window._fb.set(rRef, { 
-        offer: { type: offer.type, sdp: offer.sdp }, 
+        offer: { type: offer.type, sdp: patchedSdp }, 
         callerName: currentUser.name,
         callerMicMuted: micMuted,
         callerDeafened: deafened
@@ -592,10 +598,11 @@
       pc = buildPC(roomName, false);
       await pc.setRemoteDescription(new RTCSessionDescription(offerData));
       const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
+      const patchedSdp = patchSdp(answer.sdp);
+      await pc.setLocalDescription({ type: answer.type, sdp: patchedSdp });
       
       const rRef = window._fb.ref(db, `rooms/${roomName}`);
-      await window._fb.set(window._fb.ref(db, `rooms/${roomName}/answer`), { type: answer.type, sdp: answer.sdp });
+      await window._fb.set(window._fb.ref(db, `rooms/${roomName}/answer`), { type: answer.type, sdp: patchedSdp });
       await window._fb.set(window._fb.ref(db, `rooms/${roomName}/calleeName`), currentUser.name);
       await window._fb.set(window._fb.ref(db, `rooms/${roomName}/calleeMicMuted`), micMuted);
       await window._fb.set(window._fb.ref(db, `rooms/${roomName}/calleeDeafened`), deafened);
@@ -604,7 +611,7 @@
     function buildPC(roomName, asInitiator) {
       const connection = new RTCPeerConnection(ICE_SERVERS);
       
-      // Отправляем оригинальный чистый поток (с нативным шумодавом браузера)
+      // Отправляем чистый поток (на Android — без обработки, на других — с нативным шумодавом)
       localStream.getTracks().forEach(t => connection.addTrack(t, localStream));
       
       remoteStream = new MediaStream();
