@@ -539,13 +539,9 @@
 
         const dest = ctx.createMediaStreamDestination();
 
-        // Пробуем загрузить RNNoise (только локальный файл)
+        // Пробуем загрузить RNNoise (только локальный модуль)
         let rnnoiseLoaded = false;
         try {
-          const wasmResp = await fetch('./rnnoise.wasm');
-          if (!wasmResp.ok) throw new Error('rnnoise.wasm не найден');
-          const wasmBuf = await wasmResp.arrayBuffer();
-
           await ctx.audioWorklet.addModule('./rnnoise-processor.js');
           const rnNode = new AudioWorkletNode(ctx, 'rnnoise-processor');
 
@@ -556,7 +552,8 @@
               if (e.data.type === 'ready' && e.data.success) resolve();
               else reject(new Error(e.data.error || 'RNNoise init failed'));
             };
-            rnNode.port.postMessage({ type: 'init', wasmBuffer: wasmBuf }, [wasmBuf]);
+            // Отправляем только тип инициализации — процессор сам загрузит модуль
+            rnNode.port.postMessage({ type: 'init' });
           });
 
           src.connect(rnNode);
