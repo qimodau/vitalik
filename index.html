@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>виталик</title>
   <style>
-    /* Твой полный CSS (без изменений) */
+    /* Твой CSS полностью сохранён */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
       --bg: #0e0e10; --surface: #18181b; --surface2: #222228;
@@ -105,6 +105,7 @@
   </style>
 </head>
 <body>
+  <!-- Весь HTML без изменений, только атрибуты и скрипт обновлены -->
   <div class="topbar"><div></div><div class="topbar-right" id="topbarRight"></div></div>
 
   <div class="overlay" id="loginOverlay">
@@ -258,7 +259,6 @@
     let roomRef = null, isInitiator = false;
     let micMuted = false, deafened = false, inCall = false, hasLeft = false;
     let currentUser = null;
-    let audioCtx = null, localSource = null, processorNode = null;
 
     const $ = (id) => document.getElementById(id);
     const $joinBtn      = $('joinBtn');
@@ -286,11 +286,6 @@
     async function sha256(str) {
       const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
       return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
-    }
-
-    function isMobile() {
-      return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
-             (navigator.maxTouchPoints > 0 && window.innerWidth < 768);
     }
 
     window.addEventListener('load', async () => {
@@ -465,52 +460,9 @@
 
     function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-    // Адаптивный захват аудио
+    // Единый простой захват аудио – работает на всех устройствах
     async function getAudioStream() {
-      if (isMobile()) {
-        // Телефон: чистый звук, системный шумодав сам сработает
-        return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      } else {
-        // ПК: запрашиваем максимальные флаги
-        const attempts = [
-          { audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false },
-          { audio: { echoCancellation: true, noiseSuppression: true }, video: false },
-          { audio: { echoCancellation: true }, video: false },
-          { audio: true, video: false }
-        ];
-        for (const constraints of attempts) {
-          try { return await navigator.mediaDevices.getUserMedia(constraints); } catch (e) { continue; }
-        }
-        throw new Error('Микрофон недоступен');
-      }
-    }
-
-    // Дополнительная обработка звука на ПК: high-pass + компрессор
-    function applyAudioProcessing(stream) {
-      if (isMobile() || !stream) return stream; // на телефоне не трогаем
-      try {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const source = audioCtx.createMediaStreamSource(stream);
-        const highpass = audioCtx.createBiquadFilter();
-        highpass.type = 'highpass';
-        highpass.frequency.value = 200; // убираем гул ниже 200 Гц
-        const compressor = audioCtx.createDynamicsCompressor();
-        compressor.threshold.value = -50;
-        compressor.knee.value = 40;
-        compressor.ratio.value = 12;
-        compressor.attack.value = 0.003;
-        compressor.release.value = 0.25;
-        const dest = audioCtx.createMediaStreamDestination();
-        source.connect(highpass);
-        highpass.connect(compressor);
-        compressor.connect(dest);
-        // Останавливаем оригинальные дорожки
-        stream.getAudioTracks().forEach(track => track.stop());
-        return dest.stream;
-      } catch(e) {
-        console.warn('Не удалось применить аудиофильтр:', e);
-        return stream;
-      }
+      return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     }
 
     window.joinCall = async function() {
@@ -522,13 +474,12 @@
       setStatus('waiting', 'Подключаемся...');
       $joinBtn.disabled = true;
 
+      // Разбудить аудио
       $remoteAudio.load();
       $remoteAudio.play().catch(() => {});
 
       try {
-        let rawStream = await getAudioStream();
-        // Применяем фильтр только на ПК
-        localStream = applyAudioProcessing(rawStream);
+        localStream = await getAudioStream();
         micMuted = false;
         localStream.getAudioTracks().forEach(t => { t.enabled = true; });
       } catch(e) {
@@ -699,7 +650,6 @@
       roomRef = null;
       if (pc) { pc.close(); pc = null; }
       if (localStream) { localStream.getTracks().forEach(t=>t.stop()); localStream = null; }
-      if (audioCtx) { audioCtx.close(); audioCtx = null; }
       $remoteAudio.srcObject = null;
       
       $controls.classList.remove('visible'); $avatars.classList.remove('visible');
