@@ -506,27 +506,12 @@
         }
       }
 
-      // ── Noise gate через AudioWorklet / ScriptProcessor ──────────────────────
-      // Работает на всех платформах: на Android убирает шум без нативного шумоподава,
-      // на ПК убирает клавиатуру/мышь которые нативный шумоподав пропускает.
+      // ── Аудио-пайплайн: RNNoise (нейросеть) → компрессор ────────────────────
       try {
         const ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
+        if (ctx.state === 'suspended') await ctx.resume();
         const src = ctx.createMediaStreamSource(rawStream);
 
-        // Убеждаемся что AudioContext не suspended (Android часто suspend-ит)
-        if (ctx.state === 'suspended') await ctx.resume();
-
-        // Анализатор для измерения громкости (gate)
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 512;
-        analyser.smoothingTimeConstant = 0; // без сглаживания — меньше задержка
-        const freqData = new Uint8Array(analyser.frequencyBinCount);
-
-        // Gain node — им управляет гейт. Начинаем ОТКРЫТЫМ чтобы не резать первые секунды
-        const gateGain = ctx.createGain();
-        gateGain.gain.value = 1;
-
-        // Компрессор — подтягивает тихий голос, не даёт пикам искажаться
         const compressor = ctx.createDynamicsCompressor();
         compressor.threshold.value = -20;
         compressor.knee.value = 12;
@@ -534,93 +519,93 @@
         compressor.attack.value = 0.005;
         compressor.release.value = 0.2;
 
-        src.connect(analyser);
-        src.connect(gateGain);
-        gateGain.connect(compressor);
         const dest = ctx.createMediaStreamDestination();
-        compressor.connect(dest);
 
-        // Проверяем что поток реально содержит треки
-        if (dest.stream.getAudioTracks().length === 0) {
-          throw new Error('dest.stream пустой — AudioContext не дал треков');
+        // Пробуем загрузить RNNoise (нейросеть шумоподавления от Mozilla/Jitsi)
+        let rnnoiseLoaded = false;
+        try {
+          // Грузим wasm-модуль
+          const wasmResp = await fetch('./rnnoise.wasm');
+          if (!wasmResp.ok) throw new Error('rnnoise.wasm не найден');
+          const wasmBuf = await wasmResp.arrayBuffer();
+
+          // Регистрируем AudioWorklet процессор
+          await ctx.audioWorklet.addModule('./rnnoise-processor.js');
+          const rnNode = new AudioWorkletNode(ctx, 'rnnoise-processor');
+
+          // Передаём wasm буфер в воркет (воркет сам его инстанциирует)
+          await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error('RNNoise init timeout')), 6000);
+            rnNode.port.onmessage = (e) => {
+              clearTimeout(timeout);
+              if (e.data.type === 'ready' && e.data.success) resolve();
+              else reject(new Error(e.data.error || 'RNNoise init failed'));
+            };
+            // Передаём как Transferable — быстро, без копирования
+            rnNode.port.postMessage({ type: 'init', wasmBuffer: wasmBuf }, [wasmBuf]);
+          });
+
+          src.connect(rnNode);
+          rnNode.connect(compressor);
+          compressor.connect(dest);
+          rnnoiseLoaded = true;
+          console.log('RNNoise загружен ✓');
+        } catch(rnErr) {
+          console.warn('RNNoise недоступен, fallback на noise gate:', rnErr.message);
         }
 
-        const HOLD_MS = 220;
-        let gateOpen = true;
-        let holdUntil = 0;
-        let gateActive = false;
-        setTimeout(() => { gateActive = true; }, 1500);
+        if (!rnnoiseLoaded) {
+          // ── Fallback: noise gate (старый алгоритм) ───────────────────────────
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 512;
+          analyser.smoothingTimeConstant = 0;
+          const freqData = new Uint8Array(analyser.frequencyBinCount);
+          const gateGain = ctx.createGain();
+          gateGain.gain.value = 1;
+          src.connect(analyser);
+          src.connect(gateGain);
+          gateGain.connect(compressor);
+          compressor.connect(dest);
 
-        if (isAndroid) {
-          // ── Android: простой порог по голосовым частотам ──────────────────
-          const GATE_THRESHOLD = 22; // снизили с 35
+          const HOLD_MS = 220;
+          let gateOpen = true, holdUntil = 0, gateActive = false;
+          setTimeout(() => { gateActive = true; }, 1500);
 
-          const gateInterval = setInterval(() => {
-            if (!gateActive) return;
-            if (ctx.state === 'suspended') { ctx.resume(); return; }
-            analyser.getByteFrequencyData(freqData);
-            let sum = 0;
-            for (let i = 2; i < 86; i++) sum += freqData[i];
-            const vol = sum / 84;
-            const now = Date.now();
-            if (vol >= GATE_THRESHOLD) {
-              holdUntil = now + HOLD_MS;
-              if (!gateOpen) { gateOpen = true; gateGain.gain.setTargetAtTime(1, ctx.currentTime, 0.008); }
-            } else if (now > holdUntil && gateOpen) {
-              gateOpen = false; gateGain.gain.setTargetAtTime(0, ctx.currentTime, 0.025);
-            }
-          }, 20);
-          window._gateInterval = gateInterval;
-
-        } else {
-          // ── ПК: детектор импульсов ────────────────────────────────────────
-          // Клавиатура/мышь = резкий скачок громкости за 1-2 тика и сразу спад.
-          // Голос = громкость держится 100мс+.
-          // Алгоритм: смотрим на скорость изменения (dVol/dt).
-          // Если vol резко прыгнул вверх И быстро упал — импульс, блокируем на 120мс.
-          // Если vol растёт плавно или держится — голос, открываем.
-          const VOICE_THRESHOLD = 14;   // минимальная громкость чтобы вообще что-то делать
-          const IMPULSE_RISE = 18;      // насколько должен скакнуть за 20мс чтобы считаться импульсом
-          const IMPULSE_BLOCK_MS = 130; // блокируем после обнаружения импульса
-          let prevVol = 0;
-          let blockedUntil = 0;
-          let voiceHoldUntil = 0;
-
-          const gateInterval = setInterval(() => {
-            if (!gateActive) return;
-            if (ctx.state === 'suspended') { ctx.resume(); return; }
-            analyser.getByteFrequencyData(freqData);
-            // Голосовые частоты
-            let sum = 0;
-            for (let i = 2; i < 86; i++) sum += freqData[i];
-            const vol = sum / 84;
-            const now = Date.now();
-            const dVol = vol - prevVol;
-            prevVol = vol;
-
-            // Резкий скачок вверх = импульс (клик/стук)
-            if (dVol > IMPULSE_RISE && vol > VOICE_THRESHOLD) {
-              blockedUntil = now + IMPULSE_BLOCK_MS;
-            }
-
-            const blocked = now < blockedUntil;
-
-            if (!blocked && vol >= VOICE_THRESHOLD) {
-              voiceHoldUntil = now + HOLD_MS;
-              if (!gateOpen) { gateOpen = true; gateGain.gain.setTargetAtTime(1, ctx.currentTime, 0.008); }
-            } else if (now > voiceHoldUntil && gateOpen) {
-              gateOpen = false; gateGain.gain.setTargetAtTime(0, ctx.currentTime, 0.030);
-            }
-          }, 20);
-          window._gateInterval = gateInterval;
+          if (isAndroid) {
+            const GATE_THRESHOLD = 22;
+            window._gateInterval = setInterval(() => {
+              if (!gateActive) return;
+              if (ctx.state === 'suspended') { ctx.resume(); return; }
+              analyser.getByteFrequencyData(freqData);
+              let sum = 0; for (let i = 2; i < 86; i++) sum += freqData[i];
+              const vol = sum / 84, now = Date.now();
+              if (vol >= GATE_THRESHOLD) { holdUntil = now + HOLD_MS; if (!gateOpen) { gateOpen = true; gateGain.gain.setTargetAtTime(1, ctx.currentTime, 0.008); } }
+              else if (now > holdUntil && gateOpen) { gateOpen = false; gateGain.gain.setTargetAtTime(0, ctx.currentTime, 0.025); }
+            }, 20);
+          } else {
+            const VOICE_THRESHOLD = 14, IMPULSE_RISE = 18, IMPULSE_BLOCK_MS = 130;
+            let prevVol = 0, blockedUntil = 0, voiceHoldUntil = 0;
+            window._gateInterval = setInterval(() => {
+              if (!gateActive) return;
+              if (ctx.state === 'suspended') { ctx.resume(); return; }
+              analyser.getByteFrequencyData(freqData);
+              let sum = 0; for (let i = 2; i < 86; i++) sum += freqData[i];
+              const vol = sum / 84, now = Date.now(), dVol = vol - prevVol; prevVol = vol;
+              if (dVol > IMPULSE_RISE && vol > VOICE_THRESHOLD) blockedUntil = now + IMPULSE_BLOCK_MS;
+              const blocked = now < blockedUntil;
+              if (!blocked && vol >= VOICE_THRESHOLD) { voiceHoldUntil = now + HOLD_MS; if (!gateOpen) { gateOpen = true; gateGain.gain.setTargetAtTime(1, ctx.currentTime, 0.008); } }
+              else if (now > voiceHoldUntil && gateOpen) { gateOpen = false; gateGain.gain.setTargetAtTime(0, ctx.currentTime, 0.030); }
+            }, 20);
+          }
         }
 
+        if (dest.stream.getAudioTracks().length === 0) throw new Error('dest.stream пустой');
         window._androidAudioCtx = ctx;
         window._androidRawStream = rawStream;
         localStream = dest.stream;
 
       } catch(ctxErr) {
-        console.warn('AudioContext gate не сработал, используем rawStream:', ctxErr);
+        console.warn('AudioContext не сработал, используем rawStream:', ctxErr);
         window._androidAudioCtx = null;
         window._androidRawStream = rawStream;
         localStream = rawStream;
