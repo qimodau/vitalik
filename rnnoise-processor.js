@@ -9,39 +9,41 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
     this._ready = false;
-    this._state = null;
     this._module = null;
     this._inputBuf = [];
     this._outputBuf = [];
     this._inputPtr = null;
     this._outputPtr = null;
 
-    const { wasmBinary, scriptBase } = (options && options.processorOptions) || {};
-    if (!wasmBinary || !scriptBase) {
-      console.error('[RNNoise processor] wasmBinary или scriptBase не переданы');
+    const { wasmBinary } = (options && options.processorOptions) || {};
+    if (!wasmBinary) {
+      console.error('[RNNoise processor] wasmBinary не передан');
       return;
     }
 
-    // Используем динамический import() — работает в module и classic воркерах
-    import(scriptBase + 'rnnoise.js').then((mod) => {
-      const factory = mod.default || mod;
-      return factory({ wasmBinary });
-    }).then((rnModule) => {
-      this._module = rnModule;
-      this._inputPtr  = rnModule._malloc(FRAME * 4);
-      this._outputPtr = rnModule._malloc(FRAME * 4);
-      this._state = rnModule._rnnoise_create(0);
-      this._ready = true;
-    }).catch((e) => {
-      console.error('[RNNoise processor] ошибка инициализации:', e);
-    });
+    // Загружаем WASM напрямую (без динамического import)
+    WebAssembly.instantiate(wasmBinary, {})
+      .then((result) => {
+        const exports = result.instance.exports;
+        this._module = exports;
+        this._inputPtr = exports._malloc(FRAME * 4);
+        this._outputPtr = exports._malloc(FRAME * 4);
+        this._state = exports._rnnoise_create(0);
+        this._ready = true;
+        console.log('[RNNoise processor] WASM загружен и готов');
+      })
+      .catch((e) => {
+        console.error('[RNNoise processor] ошибка инициализации WASM:', e);
+        this._ready = false;
+      });
   }
 
   _denoise(inputF32) {
     const mod = this._module;
-    mod.HEAPF32.set(inputF32, this._inputPtr >> 2);
+    const heapF32 = new Float32Array(mod.memory.buffer);
+    heapF32.set(inputF32, this._inputPtr >> 2);
     mod._rnnoise_process_frame(this._state, this._outputPtr, this._inputPtr);
-    return mod.HEAPF32.slice(this._outputPtr >> 2, (this._outputPtr >> 2) + FRAME);
+    return new Float32Array(mod.memory.buffer, this._outputPtr, FRAME);
   }
 
   process(inputs, outputs) {
