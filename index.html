@@ -492,9 +492,9 @@
 
     async function initFirebase() {
       const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
-      const { getDatabase, ref, set, get, onValue, off, push, remove, onDisconnect } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js');
+      const { getDatabase, ref, set, get, onValue, off, push, remove, onDisconnect, runTransaction } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js');
       db = getDatabase(initializeApp(getFirebaseConfig()));
-      window._fb = { ref, set, get, onValue, off, push, remove, onDisconnect };
+      window._fb = { ref, set, get, onValue, off, push, remove, onDisconnect, runTransaction };
     }
 
     // ─── CALL & AUDIO PIPELINE ────────────────────────────────────────────────
@@ -648,6 +648,7 @@
       }
 
       // --- ОЧИСТКА СТАРОЙ КОМНАТЫ ПЕРЕД ВХОДОМ ---
+      // (если комната осталась от предыдущего звонка, удаляем её)
       const oldRoomRef = window._fb.ref(db, `rooms/${roomName}`);
       await window._fb.remove(oldRoomRef);
 
@@ -681,29 +682,73 @@
       _signalingBusy = false;
       _addedCandidates = new Set();
 
+      // Сначала создаём RTCPeerConnection и добавляем треки, чтобы сразу начать
+      pc = buildPC(roomName, null); // роль будет определена позже
+
       // Читаем текущее состояние комнаты
       const snap = await window._fb.get(roomRef);
-      const data = snap.val();
-      console.log('Текущие данные комнаты:', data);
+      const currentData = snap.val();
+      console.log('Текущие данные комнаты:', currentData);
 
-      // Если есть и offer, и answer — ошибка (не должно быть, т.к. мы очистили)
-      if (data && data.offer && data.answer) {
-        showError('Комната уже занята (остаточные данные)');
+      if (currentData && currentData.offer && currentData.answer) {
+        showError('Комната уже занята двумя участниками.');
         $joinBtn.disabled = false;
         return;
       }
 
-      // Определяем роль
-      if (!data || !data.offer) {
-        // Нет offer -> мы инициатор
-        isInitiator = true;
-        console.log('Мы инициатор, создаём offer');
-        await createOffer(roomName);
+      // Если комната пуста, создаём offer и пытаемся атомарно установить его
+      if (!currentData || !currentData.offer) {
+        // Мы инициатор – создаём offer заранее
+        const offer = await pc.createOffer();
+        const patchedSdp = patchSdp(offer.sdp);
+        await pc.setLocalDescription({ type: offer.type, sdp: patchedSdp });
+
+        const roomData = {
+          offer: { type: offer.type, sdp: patchedSdp },
+          callerName: currentUser.name,
+          callerMicMuted: micMuted,
+          callerDeafened: deafened,
+          answer: null,
+          calleeName: null,
+          calleeMicMuted: null,
+          calleeDeafened: null,
+          iceCaller: null,
+          iceCallee: null
+        };
+
+        // Транзакция: пытаемся установить эти данные, только если комната всё ещё пуста
+        const result = await window._fb.runTransaction(roomRef, (existing) => {
+          if (existing !== null) {
+            // Кто-то уже создал данные – отменяем транзакцию
+            return; // undefined отменяет
+          }
+          return roomData;
+        });
+
+        if (!result.committed) {
+          // Не удалось занять комнату – возможно, кто-то успел создать offer, становимся отвечающим
+          console.log('Не удалось стать инициатором, пробуем стать отвечающим');
+          const newSnap = await window._fb.get(roomRef);
+          const newData = newSnap.val();
+          if (newData && newData.offer && !newData.answer) {
+            isInitiator = false;
+            await createAnswer(roomName, newData.offer);
+          } else {
+            showError('Не удалось войти в комнату.');
+            $joinBtn.disabled = false;
+            return;
+          }
+        } else {
+          // Транзакция успешна – мы инициатор
+          isInitiator = true;
+          console.log('Мы инициатор, offer установлен в Firebase');
+          window._fb.onDisconnect(roomRef).remove();
+        }
       } else {
-        // Есть offer, но нет answer -> мы отвечающий
+        // Есть offer, но нет answer – мы отвечающий
         isInitiator = false;
         console.log('Мы отвечающий, создаём answer');
-        await createAnswer(roomName, data.offer);
+        await createAnswer(roomName, currentData.offer);
       }
 
       // Подписываемся на изменения (ICE-кандидаты, статусы)
@@ -757,30 +802,21 @@
     }
 
     async function createOffer(roomName) {
-      setStatus('waiting', 'Ожидаем собеседника...');
-      pc = buildPC(roomName, true);
-      const offer = await pc.createOffer();
-      const patchedSdp = patchSdp(offer.sdp);
-      await pc.setLocalDescription({ type: offer.type, sdp: patchedSdp });
-      console.log('Оффер создан, устанавливаем в Firebase');
-      const rRef = window._fb.ref(db, `rooms/${roomName}`);
-      await window._fb.set(rRef, {
-        offer: { type: offer.type, sdp: patchedSdp },
-        callerName: currentUser.name,
-        callerMicMuted: micMuted,
-        callerDeafened: deafened
-      });
-      window._fb.onDisconnect(rRef).remove();
+      // Эта функция больше не используется, всё делается в startWebRTC
     }
 
     async function createAnswer(roomName, offerData) {
-      pc = buildPC(roomName, false);
+      if (!pc) {
+        pc = buildPC(roomName, false);
+      }
+      // Устанавливаем удалённое описание из оффера
       await pc.setRemoteDescription(new RTCSessionDescription(offerData));
       const answer = await pc.createAnswer();
       const patchedSdp = patchSdp(answer.sdp);
       await pc.setLocalDescription({ type: answer.type, sdp: patchedSdp });
       console.log('Ответ создан, устанавливаем в Firebase');
       const rRef = window._fb.ref(db, `rooms/${roomName}`);
+      // Атомарно обновляем answer и calleeName
       await window._fb.update(rRef, {
         answer: { type: answer.type, sdp: patchedSdp },
         calleeName: currentUser.name,
@@ -820,7 +856,8 @@
       connection.onicecandidate = (e) => {
         if (e.candidate) {
           console.log('ICE кандидат:', e.candidate.candidate);
-          window._fb.push(window._fb.ref(db, `rooms/${roomName}/${asInitiator ? 'iceCaller' : 'iceCallee'}`), {
+          const asInit = asInitiator !== null ? asInitiator : isInitiator;
+          window._fb.push(window._fb.ref(db, `rooms/${roomName}/${asInit ? 'iceCaller' : 'iceCallee'}`), {
             candidate: e.candidate.candidate,
             sdpMid: e.candidate.sdpMid,
             sdpMLineIndex: e.candidate.sdpMLineIndex
@@ -848,7 +885,7 @@
       connection.oniceconnectionstatechange = () => {
         const s = connection.iceConnectionState;
         console.log('iceConnectionState:', s);
-        if (s === 'failed' && asInitiator && inCall && !hasLeft) {
+        if (s === 'failed' && isInitiator && inCall && !hasLeft) {
           console.warn('ICE failed, пробуем restartIce...');
           try { connection.restartIce(); } catch(e) {}
         }
