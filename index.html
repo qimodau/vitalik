@@ -217,9 +217,17 @@
           <span class="ctrl-label">Выйти</span>
         </button>
       </div>
+      <div id="debugPanel" style="display:none;width:100%;max-width:300px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;font-size:12px;color:var(--muted);line-height:1.8">
+        <div style="font-weight:600;color:var(--text);margin-bottom:6px">🔍 Диагностика микрофона</div>
+        <div id="dbgVolume">Громкость: —</div>
+        <div id="dbgConstraints">Constraints: —</div>
+        <div id="dbgAndroid">Android bypass: —</div>
+        <div id="dbgSampleRate">Sample rate: —</div>
+        <canvas id="dbgCanvas" width="268" height="40" style="width:100%;margin-top:8px;border-radius:6px;background:var(--bg)"></canvas>
+      </div>
+      <button id="debugBtn" onclick="toggleDebug()" style="display:none;background:none;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:6px 14px;font-size:12px;cursor:pointer;font-family:inherit">🔍 диагностика</button>
       <footer>WebRTC · бесплатно · p2p</footer>
-    </div>
-  </div>
+
 
   <audio id="remoteAudio" autoplay></audio>
 
@@ -484,12 +492,40 @@
       const isAndroid = /android/i.test(navigator.userAgent);
 
       try {
-        // На Android НЕ используем обработку — она давит голос и оставляет только стуки
         const audioConstraints = isAndroid
-          ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 }
+          // На Android запрашиваем сырой поток без обработки
+          ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1, sampleRate: 48000 }
           : { echoCancellation: true,  noiseSuppression: true,  autoGainControl: true,  channelCount: 1 };
 
-        localStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
+        const rawStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
+
+        if (isAndroid) {
+          // Android игнорирует constraints и всё равно применяет системную обработку.
+          // Обходим это: пропускаем поток через AudioContext — тогда уходит чистый аналоговый сигнал.
+          try {
+            const ctx = new AudioContext({ sampleRate: 48000 });
+            const src = ctx.createMediaStreamSource(rawStream);
+            // Лёгкий компрессор чтобы голос не был слишком тихим без AGC
+            const compressor = ctx.createDynamicsCompressor();
+            compressor.threshold.value = -24;
+            compressor.knee.value = 10;
+            compressor.ratio.value = 4;
+            compressor.attack.value = 0.003;
+            compressor.release.value = 0.25;
+            const dest = ctx.createMediaStreamDestination();
+            src.connect(compressor);
+            compressor.connect(dest);
+            // Сохраняем ctx чтобы закрыть при выходе
+            window._androidAudioCtx = ctx;
+            window._androidRawStream = rawStream;
+            localStream = dest.stream;
+          } catch(ctxErr) {
+            console.warn('AudioContext bypass не сработал, используем rawStream:', ctxErr);
+            localStream = rawStream;
+          }
+        } else {
+          localStream = rawStream;
+        }
       } catch(e1) {
         console.warn('getUserMedia с constraints не сработал, пробуем fallback:', e1);
         try {
@@ -662,6 +698,9 @@
       $joinBtn.style.display = 'none'; setCallUI(true);
       syncMyStatus();
       setTimeout(startSpeakingDetection, 300);
+      // Показываем кнопку диагностики
+      document.getElementById('debugBtn').style.display = '';
+      startDebug();
     }
 
     function onPeerLeft() {
@@ -680,8 +719,17 @@
       if (pc) { pc.close(); pc = null; }
       
       if (localStream) {
-        localStream.getTracks().forEach(t=>t.stop()); 
-        localStream = null; 
+        localStream.getTracks().forEach(t=>t.stop());
+        localStream = null;
+      }
+      // Закрываем Android AudioContext bypass если был создан
+      if (window._androidAudioCtx) {
+        try { window._androidAudioCtx.close(); } catch(e) {}
+        window._androidAudioCtx = null;
+      }
+      if (window._androidRawStream) {
+        window._androidRawStream.getTracks().forEach(t=>t.stop());
+        window._androidRawStream = null;
       }
       $remoteAudio.srcObject = null;
       
@@ -694,6 +742,9 @@
       micMuted = false; deafened = false; updateMicUI(); updateDeafUI(); updateBadgesUI();
       $joinBtn.disabled = false; $joinBtn.style.display = '';
       $joinBtn.textContent = 'Войти обратно'; $joinBtn.className = 'btn-join secondary';
+      stopDebug();
+      document.getElementById('debugBtn').style.display = 'none';
+      document.getElementById('debugPanel').style.display = 'none';
     };
 
     window.toggleMic = function() {
@@ -822,6 +873,75 @@
       if (h) h.style.display = active ? 'none' : '';
       if (r) r.style.display = active ? 'none' : '';
     }
+
+    // ─── ДИАГНОСТИКА ────────────────────────────────────────────────────────────
+    let _dbgCtx = null, _dbgAnalyser = null, _dbgInterval = null, _dbgAnimFrame = null;
+
+    function startDebug() {
+      if (!localStream) return;
+      try {
+        _dbgCtx = new AudioContext();
+        const src = _dbgCtx.createMediaStreamSource(localStream);
+        _dbgAnalyser = _dbgCtx.createAnalyser();
+        _dbgAnalyser.fftSize = 256;
+        src.connect(_dbgAnalyser);
+
+        // Показываем constraints
+        const track = localStream.getAudioTracks()[0];
+        if (track) {
+          const s = track.getSettings();
+          document.getElementById('dbgConstraints').textContent =
+            `echo:${s.echoCancellation} noise:${s.noiseSuppression} agc:${s.autoGainControl}`;
+          document.getElementById('dbgSampleRate').textContent =
+            `Sample rate: ${s.sampleRate || _dbgCtx.sampleRate} Hz`;
+        }
+        document.getElementById('dbgAndroid').textContent =
+          `Android bypass: ${window._androidAudioCtx ? '✅ активен' : '❌ не используется'}`;
+
+        // Визуализация громкости
+        const canvas = document.getElementById('dbgCanvas');
+        const ctx2d = canvas.getContext('2d');
+        const data = new Uint8Array(_dbgAnalyser.frequencyBinCount);
+        let frameCount = 0;
+
+        function drawFrame() {
+          _dbgAnimFrame = requestAnimationFrame(drawFrame);
+          _dbgAnalyser.getByteFrequencyData(data);
+          const vol = data.reduce((a,b)=>a+b,0) / data.length;
+          frameCount++;
+
+          // Обновляем текст каждые 10 кадров
+          if (frameCount % 10 === 0) {
+            const bar = '█'.repeat(Math.round(vol/8)) + '░'.repeat(Math.max(0, 12 - Math.round(vol/8)));
+            document.getElementById('dbgVolume').textContent = `Громкость: ${bar} ${Math.round(vol)}`;
+          }
+
+          // Рисуем спектр
+          ctx2d.fillStyle = '#0e0e10';
+          ctx2d.fillRect(0, 0, canvas.width, canvas.height);
+          const barW = canvas.width / data.length * 2;
+          for (let i = 0; i < data.length / 2; i++) {
+            const h = (data[i] / 255) * canvas.height;
+            const hue = 260 - (i / (data.length/2)) * 60;
+            ctx2d.fillStyle = `hsl(${hue},70%,60%)`;
+            ctx2d.fillRect(i * barW, canvas.height - h, barW - 1, h);
+          }
+        }
+        drawFrame();
+      } catch(e) { console.warn('Debug init error:', e); }
+    }
+
+    function stopDebug() {
+      if (_dbgAnimFrame) { cancelAnimationFrame(_dbgAnimFrame); _dbgAnimFrame = null; }
+      if (_dbgCtx) { try { _dbgCtx.close(); } catch(e){} _dbgCtx = null; }
+      _dbgAnalyser = null;
+    }
+
+    window.toggleDebug = function() {
+      const panel = document.getElementById('debugPanel');
+      panel.style.display = panel.style.display === 'none' ? '' : 'none';
+    };
+
     function setStatus(state, text) {
       $statusText.textContent = text; $dot.className = 'dot';
       if (state==='waiting')   $dot.classList.add('waiting');
