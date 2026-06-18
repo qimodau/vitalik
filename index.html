@@ -524,22 +524,25 @@
         }
       }
 
-      // ── Аудио-пайплайн: RNNoise (нейросеть) → компрессор ────────────────────
-      // Используем ScriptProcessorNode (работает в основном потоке)
+      // ── Аудио-пайплайн: RNNoise через ScriptProcessorNode ────────────────────
+      const RNNOISE_FRAME = 480;      // размер кадра RNNoise (10 мс)
+      const BUFFER_SIZE = 512;        // допустимый размер буфера (степень двойки)
+
       let audioCtx = null;
       let scriptNode = null;
       let rnnoiseReady = false;
       let rnnoiseModule = null;
       let inputPtr = null, outputPtr = null;
       let state = null;
+      let inputAccumulator = new Float32Array(0);
+      let outputAccumulator = new Float32Array(0);
 
       try {
         // Загружаем RNNoise динамически (import работает в основном потоке)
         const rnnoiseFactory = (await import('./rnnoise.js')).default;
         rnnoiseModule = await rnnoiseFactory();
-        const FRAME = 480;
-        inputPtr = rnnoiseModule._malloc(FRAME * 4);
-        outputPtr = rnnoiseModule._malloc(FRAME * 4);
+        inputPtr = rnnoiseModule._malloc(RNNOISE_FRAME * 4);
+        outputPtr = rnnoiseModule._malloc(RNNOISE_FRAME * 4);
         state = rnnoiseModule._rnnoise_create(0);
         rnnoiseReady = true;
         console.log('RNNoise загружен и инициализирован ✓');
@@ -547,17 +550,45 @@
         audioCtx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
         if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-        // ScriptProcessorNode с буфером 480 сэмплов (10 мс)
-        scriptNode = audioCtx.createScriptProcessor(FRAME, 1, 1);
+        // ScriptProcessorNode с допустимым размером буфера
+        scriptNode = audioCtx.createScriptProcessor(BUFFER_SIZE, 1, 1);
         scriptNode.onaudioprocess = (e) => {
           if (!rnnoiseReady) return;
           const inputBuffer = e.inputBuffer.getChannelData(0);
           const outputBuffer = e.outputBuffer.getChannelData(0);
-          const heapF32 = new Float32Array(rnnoiseModule.memory.buffer);
-          heapF32.set(inputBuffer, inputPtr >> 2);
-          rnnoiseModule._rnnoise_process_frame(state, outputPtr, inputPtr);
-          const processed = new Float32Array(rnnoiseModule.memory.buffer, outputPtr, FRAME);
-          outputBuffer.set(processed);
+
+          // Накопление входных сэмплов
+          const newAcc = new Float32Array(inputAccumulator.length + inputBuffer.length);
+          newAcc.set(inputAccumulator);
+          newAcc.set(inputBuffer, inputAccumulator.length);
+          inputAccumulator = newAcc;
+
+          // Обработка полных кадров RNNoise
+          while (inputAccumulator.length >= RNNOISE_FRAME) {
+            const frame = inputAccumulator.slice(0, RNNOISE_FRAME);
+            inputAccumulator = inputAccumulator.slice(RNNOISE_FRAME);
+
+            const heapF32 = new Float32Array(rnnoiseModule.memory.buffer);
+            heapF32.set(frame, inputPtr >> 2);
+            rnnoiseModule._rnnoise_process_frame(state, outputPtr, inputPtr);
+            const processed = new Float32Array(rnnoiseModule.memory.buffer, outputPtr, RNNOISE_FRAME);
+
+            // Накопление обработанных сэмплов
+            const newOut = new Float32Array(outputAccumulator.length + processed.length);
+            newOut.set(outputAccumulator);
+            newOut.set(processed, outputAccumulator.length);
+            outputAccumulator = newOut;
+          }
+
+          // Заполнение выходного буфера
+          if (outputAccumulator.length >= BUFFER_SIZE) {
+            outputBuffer.set(outputAccumulator.slice(0, BUFFER_SIZE));
+            outputAccumulator = outputAccumulator.slice(BUFFER_SIZE);
+          } else {
+            outputBuffer.set(outputAccumulator);
+            outputBuffer.fill(0, outputAccumulator.length);
+            outputAccumulator = new Float32Array(0);
+          }
         };
 
         const src = audioCtx.createMediaStreamSource(rawStream);
@@ -575,17 +606,16 @@
         compressor.connect(dest);
         localStream = dest.stream;
 
-        // Сохраняем ссылки для корректной очистки
         window._audioCtx = audioCtx;
         window._scriptNode = scriptNode;
         window._rnnoiseModule = rnnoiseModule;
         window._state = state;
         window._androidRawStream = rawStream;
-        window._androidAudioCtx = audioCtx; // для совместимости с диагностикой
+        window._androidAudioCtx = audioCtx;
 
       } catch (err) {
         console.warn('RNNoise не загрузился, используем fallback noise gate:', err.message);
-        // ── Fallback: noise gate ──────────────────────────────────────────────
+        // ── Fallback: noise gate (без ScriptProcessorNode) ────────────────────
         audioCtx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
         if (audioCtx.state === 'suspended') await audioCtx.resume();
         const src = audioCtx.createMediaStreamSource(rawStream);
