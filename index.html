@@ -716,10 +716,18 @@
           console.log('Создаём ответ на оффер');
           await createAnswer(roomName, data.offer);
           _signalingBusy = false;
-        } else if (data.answer && isInitiator && pc && pc.signalingState !== 'stable') {
-          // Получили ответ от отвечающего
-          console.log('Устанавливаем удалённое описание (ответ)');
-          await pc.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(e => console.warn('setRemoteDescription answer error:', e));
+        } else if (data.answer && data.offer && pc) {
+          // Когда есть и оффер, и ответ — применяем удалённое описание в зависимости от роли
+          const amCaller = currentUser.name === data.callerName;
+          if (amCaller && pc.signalingState !== 'stable') {
+            // Мы инициатор, должны применить answer
+            console.log('Устанавливаем удалённое описание (ответ) для инициатора');
+            await pc.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(e => console.warn('setRemoteDescription answer error:', e));
+          } else if (!amCaller && pc.signalingState !== 'stable') {
+            // Мы отвечающий, должны применить offer (обычно уже применён, но на всякий случай)
+            console.log('Устанавливаем удалённое описание (оффер) для отвечающего');
+            await pc.setRemoteDescription(new RTCSessionDescription(data.offer)).catch(e => console.warn('setRemoteDescription offer error:', e));
+          }
         }
 
         // Добавление ICE-кандидатов
