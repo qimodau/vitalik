@@ -568,10 +568,8 @@
             const frame = inputAccumulator.slice(0, RNNOISE_FRAME);
             inputAccumulator = inputAccumulator.slice(RNNOISE_FRAME);
 
-            // Используем rnnoiseModule.HEAPF32 для доступа к памяти (не memory)
             const heapF32 = rnnoiseModule.HEAPF32;
             if (!heapF32) {
-              // fallback: если HEAPF32 нет, пропускаем обработку
               outputBuffer.set(inputBuffer);
               return;
             }
@@ -579,7 +577,6 @@
             rnnoiseModule._rnnoise_process_frame(state, outputPtr, inputPtr);
             const processed = new Float32Array(heapF32.buffer, outputPtr, RNNOISE_FRAME);
 
-            // Накопление обработанных сэмплов
             const newOut = new Float32Array(outputAccumulator.length + processed.length);
             newOut.set(outputAccumulator);
             newOut.set(processed, outputAccumulator.length);
@@ -621,7 +618,7 @@
 
       } catch (err) {
         console.warn('RNNoise не загрузился, используем fallback noise gate:', err.message);
-        // ── Fallback: noise gate (без ScriptProcessorNode) ────────────────────
+        // ── Fallback: noise gate ──────────────────────────────────────────────
         audioCtx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
         if (audioCtx.state === 'suspended') await audioCtx.resume();
         const src = audioCtx.createMediaStreamSource(rawStream);
@@ -641,6 +638,13 @@
         window._state = null;
         window._androidRawStream = rawStream;
         window._androidAudioCtx = audioCtx;
+      }
+
+      // Проверяем, что localStream имеет аудио-треки
+      if (!localStream || localStream.getAudioTracks().length === 0) {
+        showError('Не удалось создать аудиопоток.');
+        $joinBtn.disabled = false;
+        return;
       }
 
       hasLeft = false; inCall = false; isInitiator = false; pc = null;
@@ -664,14 +668,21 @@
     }
 
     async function startWebRTC(roomName) {
-      if (roomRef && window._fb) { try { window._fb.off(roomRef); } catch(e){} }
+      console.log('startWebRTC вызван для комнаты:', roomName);
+      // Отписываемся от старого roomRef, если есть
+      if (roomRef && window._fb) {
+        try { window._fb.off(roomRef); } catch(e) {}
+        roomRef = null;
+      }
       roomRef = window._fb.ref(db, `rooms/${roomName}`);
-      _signalingBusy = false; _addedCandidates = new Set();
+      _signalingBusy = false;
+      _addedCandidates = new Set();
 
       window._fb.onValue(roomRef, async (snap) => {
         if (hasLeft) return;
         const data = snap.val();
-        
+        console.log('onValue data:', data);
+
         if (data) {
           const peerName = isInitiator ? data.calleeName : data.callerName;
           if (peerName && peerName !== $peerName.textContent) {
@@ -690,25 +701,42 @@
         }
 
         if (!data || !data.offer) {
+          // Нет оффера — мы инициатор
           if (inCall || _signalingBusy || isInitiator) return;
-          _signalingBusy = true; isInitiator = true;
-          await createOffer(roomName); _signalingBusy = false;
+          _signalingBusy = true;
+          isInitiator = true;
+          console.log('Создаём оффер как инициатор');
+          await createOffer(roomName);
+          _signalingBusy = false;
         } else if (data.offer && !data.answer && !isInitiator) {
+          // Есть оффер, нет ответа — мы отвечаем
           if (inCall || _signalingBusy) return;
-          _signalingBusy = true; isInitiator = false;
-          await createAnswer(roomName, data.offer); _signalingBusy = false;
+          _signalingBusy = true;
+          isInitiator = false;
+          console.log('Создаём ответ на оффер');
+          await createAnswer(roomName, data.offer);
+          _signalingBusy = false;
         } else if (data.answer && isInitiator && pc && pc.signalingState !== 'stable') {
-          await pc.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(()=>{});
+          // Получили ответ от отвечающего
+          console.log('Устанавливаем удалённое описание (ответ)');
+          await pc.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(e => console.warn('setRemoteDescription answer error:', e));
         }
-        
+
+        // Добавление ICE-кандидатов
         if (data && pc) {
           const theirKey = isInitiator ? 'iceCallee' : 'iceCaller';
-          if (data[theirKey]) Object.entries(data[theirKey]).forEach(async ([key, c]) => {
-            if (c?.candidate && !_addedCandidates.has(key)) {
-              _addedCandidates.add(key);
-              try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch(e) {}
-            }
-          });
+          if (data[theirKey]) {
+            Object.entries(data[theirKey]).forEach(async ([key, c]) => {
+              if (c?.candidate && !_addedCandidates.has(key)) {
+                _addedCandidates.add(key);
+                try {
+                  await pc.addIceCandidate(new RTCIceCandidate(c));
+                } catch(e) {
+                  console.warn('addIceCandidate error:', e);
+                }
+              }
+            });
+          }
         }
       });
     }
@@ -731,9 +759,10 @@
       const offer = await pc.createOffer();
       const patchedSdp = patchSdp(offer.sdp);
       await pc.setLocalDescription({ type: offer.type, sdp: patchedSdp });
+      console.log('Оффер создан, устанавливаем в Firebase');
       const rRef = window._fb.ref(db, `rooms/${roomName}`);
-      await window._fb.set(rRef, { 
-        offer: { type: offer.type, sdp: patchedSdp }, 
+      await window._fb.set(rRef, {
+        offer: { type: offer.type, sdp: patchedSdp },
         callerName: currentUser.name,
         callerMicMuted: micMuted,
         callerDeafened: deafened
@@ -747,7 +776,7 @@
       const answer = await pc.createAnswer();
       const patchedSdp = patchSdp(answer.sdp);
       await pc.setLocalDescription({ type: answer.type, sdp: patchedSdp });
-      
+      console.log('Ответ создан, устанавливаем в Firebase');
       const rRef = window._fb.ref(db, `rooms/${roomName}`);
       await window._fb.set(window._fb.ref(db, `rooms/${roomName}/answer`), { type: answer.type, sdp: patchedSdp });
       await window._fb.set(window._fb.ref(db, `rooms/${roomName}/calleeName`), currentUser.name);
@@ -757,12 +786,17 @@
 
     function buildPC(roomName, asInitiator) {
       const connection = new RTCPeerConnection(ICE_SERVERS);
-      
-      localStream.getTracks().forEach(t => connection.addTrack(t, localStream));
-      
+
+      // Добавляем локальные треки
+      localStream.getTracks().forEach(t => {
+        connection.addTrack(t, localStream);
+        console.log('Добавлен трек:', t.kind, t.id);
+      });
+
       remoteStream = new MediaStream();
       $remoteAudio.srcObject = remoteStream;
       connection.ontrack = (e) => {
+        console.log('ontrack получен, добавляем треки в remoteStream');
         e.streams[0].getTracks().forEach(t => {
           remoteStream.addTrack(t);
           if (connection.getReceivers) {
@@ -774,17 +808,24 @@
             });
           }
         });
-        if (!inCall) { inCall = true; onConnected(); }
+        if (!inCall) {
+          inCall = true;
+          onConnected();
+        }
       };
       connection.onicecandidate = (e) => {
         if (e.candidate) {
+          console.log('ICE кандидат:', e.candidate.candidate);
           window._fb.push(window._fb.ref(db, `rooms/${roomName}/${asInitiator ? 'iceCaller' : 'iceCallee'}`), {
-            candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex
+            candidate: e.candidate.candidate,
+            sdpMid: e.candidate.sdpMid,
+            sdpMLineIndex: e.candidate.sdpMLineIndex
           });
         }
       };
       connection.onconnectionstatechange = () => {
         const s = connection.connectionState;
+        console.log('connectionState:', s);
         if (s === 'disconnected' && inCall && !hasLeft) {
           connection._reconnectTimer = setTimeout(() => {
             if (connection.connectionState === 'disconnected' && inCall && !hasLeft) {
@@ -802,6 +843,7 @@
       };
       connection.oniceconnectionstatechange = () => {
         const s = connection.iceConnectionState;
+        console.log('iceConnectionState:', s);
         if (s === 'failed' && asInitiator && inCall && !hasLeft) {
           console.warn('ICE failed, пробуем restartIce...');
           try { connection.restartIce(); } catch(e) {}
@@ -812,19 +854,25 @@
 
     function onConnected() {
       setStatus('connected', 'Соединение установлено');
-      $avatars.classList.add('visible'); $controls.classList.add('visible');
-      $joinBtn.style.display = 'none'; setCallUI(true);
+      $avatars.classList.add('visible');
+      $controls.classList.add('visible');
+      $joinBtn.style.display = 'none';
+      setCallUI(true);
       syncMyStatus();
       setTimeout(startSpeakingDetection, 300);
       document.getElementById('debugBtn').style.display = '';
       startDebug();
+      console.log('Звонок установлен!');
     }
 
     let _autoReconnectTimer = null;
 
     function onPeerLeft() {
       if (pc) { try { pc.close(); } catch(e){} pc = null; }
-      inCall = false; isInitiator = false; _signalingBusy = false; _addedCandidates = new Set();
+      inCall = false;
+      isInitiator = false;
+      _signalingBusy = false;
+      _addedCandidates = new Set();
       stopSpeakingDetection();
       $avatars.classList.remove('visible');
       document.getElementById('peerAvatar').innerHTML = '<span id="peerAvatarText">👤</span>';
@@ -846,24 +894,27 @@
         } catch(e) {
           setStatus('error', 'Не удалось переподключиться');
           setCallUI(false);
-          $joinBtn.disabled = false; $joinBtn.style.display = '';
+          $joinBtn.disabled = false;
+          $joinBtn.style.display = '';
         }
       }, 2000);
     }
 
     window.leaveCall = async function() {
-      hasLeft = true; inCall = false; isInitiator = false;
+      hasLeft = true;
+      inCall = false;
+      isInitiator = false;
       clearTimeout(_autoReconnectTimer);
       if (roomRef && window._fb) { try { window._fb.off(roomRef); } catch(e){} }
       roomRef = null;
       if (pc) { pc.close(); pc = null; }
-      
+
       if (localStream) {
         localStream.getTracks().forEach(t=>t.stop());
         localStream = null;
       }
       if (window._gateInterval) { clearInterval(window._gateInterval); window._gateInterval = null; }
-      
+
       // Закрываем AudioContext и освобождаем RNNoise
       if (window._audioCtx) {
         try { window._audioCtx.close(); } catch(e) {}
@@ -889,20 +940,28 @@
         window._androidRawStream = null;
       }
       $remoteAudio.srcObject = null;
-      
-      $controls.classList.remove('visible'); $avatars.classList.remove('visible');
+
+      $controls.classList.remove('visible');
+      $avatars.classList.remove('visible');
       document.getElementById('myBadges').innerHTML = '';
       document.getElementById('peerBadges').innerHTML = '';
       document.getElementById('peerAvatar').innerHTML = '<span id="peerAvatarText">👤</span>';
       $peerName.textContent = 'Собеседник';
-      setStatus('idle', 'Ты вышел из звонка'); setCallUI(false); stopSpeakingDetection();
-      micMuted = false; deafened = false; updateMicUI(); updateDeafUI(); updateBadgesUI();
+      setStatus('idle', 'Ты вышел из звонка');
+      setCallUI(false);
+      stopSpeakingDetection();
+      micMuted = false;
+      deafened = false;
+      updateMicUI();
+      updateDeafUI();
+      updateBadgesUI();
 
       _signalingBusy = false;
       _addedCandidates = new Set();
       hasLeft = false;
 
-      $joinBtn.disabled = false; $joinBtn.style.display = '';
+      $joinBtn.disabled = false;
+      $joinBtn.style.display = '';
       $joinBtn.textContent = 'Войти в звонок';
       $joinBtn.className = 'btn-join primary';
       stopDebug();
@@ -918,7 +977,7 @@
       updateBadgesUI();
       syncMyStatus();
     };
-    
+
     const ICON_MIC_ON  = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
     const ICON_MIC_OFF = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
     const ICON_MIC_OFF_SM = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
@@ -928,10 +987,10 @@
       else           { $micIcon.innerHTML = ICON_MIC_ON;  $micLabel.textContent = 'Микрофон'; $micBtn.classList.remove('active'); }
     }
 
-    window.toggleDeaf = function() { 
-      deafened = !deafened; 
-      $remoteAudio.muted = deafened; 
-      updateDeafUI(); 
+    window.toggleDeaf = function() {
+      deafened = !deafened;
+      $remoteAudio.muted = deafened;
+      updateDeafUI();
       updateBadgesUI();
       syncMyStatus();
     };
@@ -990,8 +1049,8 @@
         _audioCtxVis = new (window.AudioContext || window.webkitAudioContext)();
         if (localStream) {
           const src = _audioCtxVis.createMediaStreamSource(localStream);
-          _analyserLocal = _audioCtxVis.createAnalyser(); 
-          _analyserLocal.fftSize = 512; 
+          _analyserLocal = _audioCtxVis.createAnalyser();
+          _analyserLocal.fftSize = 512;
           src.connect(_analyserLocal);
           const data = new Uint8Array(_analyserLocal.frequencyBinCount);
           _spkIntLocal = setInterval(() => {
@@ -1003,8 +1062,8 @@
         }
         if ($remoteAudio.srcObject) {
           const src2 = _audioCtxVis.createMediaStreamSource($remoteAudio.srcObject);
-          _analyserRemote = _audioCtxVis.createAnalyser(); 
-          _analyserRemote.fftSize = 512; 
+          _analyserRemote = _audioCtxVis.createAnalyser();
+          _analyserRemote.fftSize = 512;
           src2.connect(_analyserRemote);
           const data2 = new Uint8Array(_analyserRemote.frequencyBinCount);
           _spkIntRemote = setInterval(() => {
