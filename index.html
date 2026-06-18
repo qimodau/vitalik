@@ -542,25 +542,18 @@
         // Пробуем загрузить RNNoise (только локальный модуль)
         let rnnoiseLoaded = false;
         try {
+          // Регистрируем процессор (он сам импортирует rnnoise.js)
           await ctx.audioWorklet.addModule('./rnnoise-processor.js');
           const rnNode = new AudioWorkletNode(ctx, 'rnnoise-processor');
 
-          await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error('RNNoise init timeout')), 6000);
-            rnNode.port.onmessage = (e) => {
-              clearTimeout(timeout);
-              if (e.data.type === 'ready' && e.data.success) resolve();
-              else reject(new Error(e.data.error || 'RNNoise init failed'));
-            };
-            // Отправляем только тип инициализации — процессор сам загрузит модуль
-            rnNode.port.postMessage({ type: 'init' });
-          });
-
+          // ВАЖНО: больше не отправляем postMessage и не ждём инициализации,
+          // потому что процессор инициализируется в конструкторе.
+          // Сразу подключаем.
           src.connect(rnNode);
           rnNode.connect(compressor);
           compressor.connect(dest);
           rnnoiseLoaded = true;
-          console.log('RNNoise загружен ✓');
+          console.log('RNNoise загружен ✓ (статический импорт)');
         } catch(rnErr) {
           console.warn('RNNoise недоступен, fallback на noise gate:', rnErr.message);
         }
