@@ -1,40 +1,70 @@
 /**
  * rnnoise-processor.js
  * AudioWorklet для шумоподавления через RNNoise.
- * Использует статический импорт модуля rnnoise.js.
+ * Получает wasmBinary из processorOptions (передаётся из основного потока).
  */
-import RNNoiseModule from './rnnoise.js';
 
 const FRAME = 480; // 10 мс при 48 кГц
 
 class RNNoiseProcessor extends AudioWorkletProcessor {
-  constructor() {
+  constructor(options) {
     super();
     this._ready = false;
     this._state = null;
+    this._module = null;
     this._inputBuf = [];
     this._outputBuf = [];
+    this._inputPtr = null;
+    this._outputPtr = null;
+
+    const { wasmBinary, scriptBase } = (options && options.processorOptions) || {};
+    if (!wasmBinary) {
+      console.error('[RNNoise processor] wasmBinary не передан в processorOptions');
+      return;
+    }
 
     try {
-      // Модуль экспортирует фабричную функцию. Вызываем её.
-      const rnnoise = typeof RNNoiseModule === 'function'
-        ? RNNoiseModule()
-        : RNNoiseModule.default ? RNNoiseModule.default() : RNNoiseModule;
-
-      if (typeof rnnoise.createState !== 'function') {
-        throw new Error('createState not found in RNNoise API');
-      }
-      this._state = rnnoise.createState();
-      this._ready = true;
+      // Импортируем rnnoise.js — используем абсолютный URL переданный из основного потока
+      importScripts(scriptBase + 'rnnoise.js');
     } catch (e) {
-      console.error('[RNNoise processor] конструктор ошибка:', e);
+      console.error('[RNNoise processor] не удалось загрузить rnnoise.js:', e);
+      return;
     }
+
+    // createRNNWasmModule — глобальная функция после importScripts
+    if (typeof createRNNWasmModule !== 'function') {
+      console.error('[RNNoise processor] createRNNWasmModule не найдена');
+      return;
+    }
+
+    createRNNWasmModule({
+      wasmBinary: wasmBinary,
+      // Говорим модулю не искать .wasm файл — он уже передан
+      locateFile: (path) => path,
+    }).ready.then((mod) => {
+      this._module = mod;
+
+      // Выделяем буферы в WASM heap
+      this._inputPtr  = mod._malloc(FRAME * 4); // Float32 = 4 байта
+      this._outputPtr = mod._malloc(FRAME * 4);
+
+      // Создаём состояние RNNoise
+      this._state = mod._rnnoise_create(0);
+
+      this._ready = true;
+    }).catch((e) => {
+      console.error('[RNNoise processor] ошибка инициализации WASM:', e);
+    });
   }
 
   _denoise(inputF32) {
-    const out = new Float32Array(FRAME);
-    this._state.processFrame(inputF32, out);
-    return out;
+    const mod = this._module;
+    // Копируем float32 в WASM heap
+    mod.HEAPF32.set(inputF32, this._inputPtr >> 2);
+    // Обрабатываем кадр
+    mod._rnnoise_process_frame(this._state, this._outputPtr, this._inputPtr);
+    // Читаем результат
+    return mod.HEAPF32.slice(this._outputPtr >> 2, (this._outputPtr >> 2) + FRAME);
   }
 
   process(inputs, outputs) {
@@ -43,7 +73,7 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
     if (!inCh || !outCh) return true;
 
     if (!this._ready) {
-      outCh.set(inCh);
+      outCh.set(inCh); // пока не готово — пропускаем без обработки
       return true;
     }
 
