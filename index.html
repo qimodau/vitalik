@@ -499,7 +499,6 @@
 
     // ─── CALL & AUDIO PIPELINE ────────────────────────────────────────────────
     window.joinCall = async function() {
-      // FIX: сбрасываем флаг hasLeft при новом входе
       hasLeft = false;
       if (!currentUser || !db) { showError('Firebase инициализируется, подожди секунду.'); return; }
       clearError();
@@ -512,7 +511,6 @@
 
       let rawStream;
       try {
-        // FIX: отключаем шумоподавление и AGC на ПК (оставляем только эхо-подавление)
         const audioConstraints = isAndroid
           ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1, sampleRate: 48000 }
           : { echoCancellation: true, noiseSuppression: false, autoGainControl: false, channelCount: 1 };
@@ -533,35 +531,24 @@
         const src = ctx.createMediaStreamSource(rawStream);
 
         const compressor = ctx.createDynamicsCompressor();
-        // FIX: ослабляем компрессор, чтобы голос не душился
-        compressor.threshold.value = -16;          // было -20
-        compressor.knee.value = 8;                 // было 12
-        compressor.ratio.value = isAndroid ? 2.5 : 1.5; // было 5 и 3
-        compressor.attack.value = 0.003;           // было 0.005
-        compressor.release.value = 0.15;           // было 0.2
+        compressor.threshold.value = -16;
+        compressor.knee.value = 8;
+        compressor.ratio.value = isAndroid ? 2.5 : 1.5;
+        compressor.attack.value = 0.003;
+        compressor.release.value = 0.15;
 
         const dest = ctx.createMediaStreamDestination();
 
-        // Пробуем загрузить RNNoise (нейросеть шумоподавления от Mozilla/Jitsi)
+        // Пробуем загрузить RNNoise (только локальный файл)
         let rnnoiseLoaded = false;
         try {
-          // FIX: сначала пробуем локальный файл, затем CDN
-          let wasmResp;
-          try {
-            wasmResp = await fetch('./rnnoise.wasm');
-          } catch {
-            // fallback на CDN (jsdelivr)
-            wasmResp = await fetch('https://cdn.jsdelivr.net/npm/@jitsi/rnnoise-wasm@latest/dist/rnnoise.wasm');
-          }
+          const wasmResp = await fetch('./rnnoise.wasm');
           if (!wasmResp.ok) throw new Error('rnnoise.wasm не найден');
           const wasmBuf = await wasmResp.arrayBuffer();
 
-          // Регистрируем AudioWorklet процессор
-          // FIX: используем относительный путь, предполагая, что файл лежит рядом
           await ctx.audioWorklet.addModule('./rnnoise-processor.js');
           const rnNode = new AudioWorkletNode(ctx, 'rnnoise-processor');
 
-          // Передаём wasm буфер в воркет
           await new Promise((resolve, reject) => {
             const timeout = setTimeout(() => reject(new Error('RNNoise init timeout')), 6000);
             rnNode.port.onmessage = (e) => {
@@ -582,7 +569,7 @@
         }
 
         if (!rnnoiseLoaded) {
-          // ── Fallback: noise gate (старый алгоритм) ───────────────────────────
+          // ── Fallback: noise gate ───────────────────────────────────────────
           const analyser = ctx.createAnalyser();
           analyser.fftSize = 512;
           analyser.smoothingTimeConstant = 0;
@@ -599,8 +586,7 @@
           setTimeout(() => { gateActive = true; }, 1500);
 
           if (isAndroid) {
-            // FIX: ослабляем порог на Android
-            const GATE_THRESHOLD = 18; // было 22
+            const GATE_THRESHOLD = 18;
             window._gateInterval = setInterval(() => {
               if (!gateActive) return;
               if (ctx.state === 'suspended') { ctx.resume(); return; }
@@ -611,9 +597,8 @@
               else if (now > holdUntil && gateOpen) { gateOpen = false; gateGain.gain.setTargetAtTime(0, ctx.currentTime, 0.025); }
             }, 20);
           } else {
-            // FIX: ослабляем пороги на ПК
-            const VOICE_THRESHOLD = 10;   // было 14
-            const IMPULSE_RISE = 22;      // было 18
+            const VOICE_THRESHOLD = 10;
+            const IMPULSE_RISE = 22;
             const IMPULSE_BLOCK_MS = 130;
             let prevVol = 0, blockedUntil = 0, voiceHoldUntil = 0;
             window._gateInterval = setInterval(() => {
@@ -663,7 +648,6 @@
     }
 
     async function startWebRTC(roomName) {
-      // Снимаем старый listener если был (важно при "Войти обратно")
       if (roomRef && window._fb) { try { window._fb.off(roomRef); } catch(e){} }
       roomRef = window._fb.ref(db, `rooms/${roomName}`);
       _signalingBusy = false; _addedCandidates = new Set();
@@ -713,15 +697,12 @@
       });
     }
 
-    // Патчим SDP: меньше задержка (ptime=10), без DTX, нормальный битрейт
     function patchSdp(sdp) {
       let s = sdp;
-      // Opus параметры: без DTX, без стерео, битрейт 32kbps
       s = s.replace(/(a=fmtp:111 )(.*)/g, (_, prefix, params) => {
         if (params.includes('usedtx')) return prefix + params;
         return `${prefix}${params};usedtx=0;stereo=0;maxaveragebitrate=32000`;
       });
-      // ptime=10 — пакет каждые 10мс вместо 20мс, вдвое меньше буферизация
       if (!s.includes('a=ptime:')) {
         s = s.replace(/(m=audio.*\r\n)/g, '$1a=ptime:10\r\na=maxptime:10\r\n');
       }
@@ -735,7 +716,6 @@
       const patchedSdp = patchSdp(offer.sdp);
       await pc.setLocalDescription({ type: offer.type, sdp: patchedSdp });
       const rRef = window._fb.ref(db, `rooms/${roomName}`);
-      // Полностью перезаписываем комнату — убираем мусор от прошлого сеанса
       await window._fb.set(rRef, { 
         offer: { type: offer.type, sdp: patchedSdp }, 
         callerName: currentUser.name,
@@ -762,7 +742,6 @@
     function buildPC(roomName, asInitiator) {
       const connection = new RTCPeerConnection(ICE_SERVERS);
       
-      // Отправляем чистый поток (на Android — без обработки, на других — с нативным шумодавом)
       localStream.getTracks().forEach(t => connection.addTrack(t, localStream));
       
       remoteStream = new MediaStream();
@@ -770,12 +749,11 @@
       connection.ontrack = (e) => {
         e.streams[0].getTracks().forEach(t => {
           remoteStream.addTrack(t);
-          // Минимизируем jitter buffer — основная причина задержки при разговоре
           if (connection.getReceivers) {
             const receivers = connection.getReceivers();
             receivers.forEach(r => {
               if (r.track === t && r.jitterBufferTarget !== undefined) {
-                r.jitterBufferTarget = 0; // браузер сам выберет минимум
+                r.jitterBufferTarget = 0;
               }
             });
           }
@@ -792,7 +770,6 @@
       connection.onconnectionstatechange = () => {
         const s = connection.connectionState;
         if (s === 'disconnected' && inCall && !hasLeft) {
-          // Даём 4 секунды на автовосстановление перед тем как объявить разрыв
           connection._reconnectTimer = setTimeout(() => {
             if (connection.connectionState === 'disconnected' && inCall && !hasLeft) {
               onPeerLeft();
@@ -809,7 +786,6 @@
       };
       connection.oniceconnectionstatechange = () => {
         const s = connection.iceConnectionState;
-        // ICE restart при failed — пересогласуем соединение
         if (s === 'failed' && asInitiator && inCall && !hasLeft) {
           console.warn('ICE failed, пробуем restartIce...');
           try { connection.restartIce(); } catch(e) {}
@@ -824,7 +800,6 @@
       $joinBtn.style.display = 'none'; setCallUI(true);
       syncMyStatus();
       setTimeout(startSpeakingDetection, 300);
-      // Показываем кнопку диагностики
       document.getElementById('debugBtn').style.display = '';
       startDebug();
     }
@@ -843,7 +818,6 @@
 
       if (hasLeft) return;
 
-      // Авто-переподключение: пересоздаём WebRTC через 2 секунды не трогая микрофон
       setStatus('waiting', 'Переподключение...');
       clearTimeout(_autoReconnectTimer);
       _autoReconnectTimer = setTimeout(async () => {
@@ -851,7 +825,6 @@
         const roomName = $roomInput.value;
         setStatus('waiting', 'Ожидаем собеседника...');
         try {
-          // Чистим старую комнату в Firebase если мы были инициатором
           if (roomRef && window._fb) { try { window._fb.off(roomRef); } catch(e){} roomRef = null; }
           await startWebRTC(roomName);
         } catch(e) {
@@ -873,7 +846,6 @@
         localStream.getTracks().forEach(t=>t.stop());
         localStream = null;
       }
-      // Закрываем Android AudioContext bypass если был создан
       if (window._gateInterval) { clearInterval(window._gateInterval); window._gateInterval = null; }
       if (window._androidAudioCtx) {
         try { window._androidAudioCtx.close(); } catch(e) {}
@@ -893,14 +865,13 @@
       setStatus('idle', 'Ты вышел из звонка'); setCallUI(false); stopSpeakingDetection();
       micMuted = false; deafened = false; updateMicUI(); updateDeafUI(); updateBadgesUI();
 
-      // FIX: сбрасываем флаги, чтобы повторный вход работал
       _signalingBusy = false;
       _addedCandidates = new Set();
-      hasLeft = false; // сбрасываем, т.к. мы вышли полностью
+      hasLeft = false;
 
       $joinBtn.disabled = false; $joinBtn.style.display = '';
-      $joinBtn.textContent = 'Войти в звонок'; // FIX: возвращаем оригинальный текст
-      $joinBtn.className = 'btn-join primary'; // FIX: возвращаем синий стиль
+      $joinBtn.textContent = 'Войти в звонок';
+      $joinBtn.className = 'btn-join primary';
       stopDebug();
       document.getElementById('debugBtn').style.display = 'none';
       document.getElementById('debugPanel').style.display = 'none';
@@ -909,9 +880,7 @@
     window.toggleMic = function() {
       if (!localStream) return;
       micMuted = !micMuted;
-      
       localStream.getAudioTracks().forEach(t => { t.enabled = !micMuted; });
-      
       updateMicUI();
       updateBadgesUI();
       syncMyStatus();
@@ -979,21 +948,18 @@
       } catch(e) {}
     })();
 
-    // ─── SPEAKING DETECTION (НЕ ВЛИЯЕТ НА ПЕРЕДАЧУ ЗВУКА) ────────────────────
+    // ─── SPEAKING DETECTION ──────────────────────────────────────────────────
     let _audioCtxVis = null, _analyserLocal = null, _analyserRemote = null;
     let _spkIntLocal = null, _spkIntRemote = null;
 
     function startSpeakingDetection() {
       try {
-        // Запускаем AudioContext только для визуализации. Он "слушает" поток сбоку, не ломая WebRTC.
         _audioCtxVis = new (window.AudioContext || window.webkitAudioContext)();
-        
         if (localStream) {
           const src = _audioCtxVis.createMediaStreamSource(localStream);
           _analyserLocal = _audioCtxVis.createAnalyser(); 
           _analyserLocal.fftSize = 512; 
-          src.connect(_analyserLocal); // ВАЖНО: не подключаем к destination!
-          
+          src.connect(_analyserLocal);
           const data = new Uint8Array(_analyserLocal.frequencyBinCount);
           _spkIntLocal = setInterval(() => {
             if (!_analyserLocal) return;
@@ -1007,7 +973,6 @@
           _analyserRemote = _audioCtxVis.createAnalyser(); 
           _analyserRemote.fftSize = 512; 
           src2.connect(_analyserRemote);
-          
           const data2 = new Uint8Array(_analyserRemote.frequencyBinCount);
           _spkIntRemote = setInterval(() => {
             if (!_analyserRemote) return;
@@ -1034,7 +999,7 @@
     }
 
     // ─── ДИАГНОСТИКА ────────────────────────────────────────────────────────────
-    let _dbgCtx = null, _dbgAnalyser = null, _dbgInterval = null, _dbgAnimFrame = null;
+    let _dbgCtx = null, _dbgAnalyser = null, _dbgAnimFrame = null;
 
     function startDebug() {
       if (!localStream) return;
@@ -1045,7 +1010,6 @@
         _dbgAnalyser.fftSize = 256;
         src.connect(_dbgAnalyser);
 
-        // Показываем constraints
         const track = localStream.getAudioTracks()[0];
         if (track) {
           const s = track.getSettings();
@@ -1057,7 +1021,6 @@
         document.getElementById('dbgAndroid').textContent =
           `Gate: ${/android/i.test(navigator.userAgent) ? 'Android (порог 18)' : 'ПК (детектор импульсов)'} | ctx: ${window._androidAudioCtx ? '✅' : '❌'}`;
 
-        // Визуализация громкости
         const canvas = document.getElementById('dbgCanvas');
         const ctx2d = canvas.getContext('2d');
         const data = new Uint8Array(_dbgAnalyser.frequencyBinCount);
@@ -1068,14 +1031,10 @@
           _dbgAnalyser.getByteFrequencyData(data);
           const vol = data.reduce((a,b)=>a+b,0) / data.length;
           frameCount++;
-
-          // Обновляем текст каждые 10 кадров
           if (frameCount % 10 === 0) {
             const bar = '█'.repeat(Math.round(vol/8)) + '░'.repeat(Math.max(0, 12 - Math.round(vol/8)));
             document.getElementById('dbgVolume').textContent = `Громкость: ${bar} ${Math.round(vol)}`;
           }
-
-          // Рисуем спектр
           ctx2d.fillStyle = '#0e0e10';
           ctx2d.fillRect(0, 0, canvas.width, canvas.height);
           const barW = canvas.width / data.length * 2;
