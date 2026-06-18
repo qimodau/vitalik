@@ -539,35 +539,21 @@
 
         const dest = ctx.createMediaStreamDestination();
 
-        // Пробуем загрузить RNNoise (только локальный .wasm)
+        // Пробуем загрузить RNNoise через статический импорт в AudioWorklet
         let rnnoiseLoaded = false;
         try {
-          // Загружаем .wasm в основном потоке
-          const wasmResp = await fetch('./rnnoise.wasm');
-          if (!wasmResp.ok) throw new Error('rnnoise.wasm не найден');
-          const wasmBuf = await wasmResp.arrayBuffer();
-
-          // Регистрируем процессор
+          // Регистрируем процессор (он сам импортирует rnnoise.js)
           await ctx.audioWorklet.addModule('./rnnoise-processor.js');
           const rnNode = new AudioWorkletNode(ctx, 'rnnoise-processor');
 
-          // Ждём инициализацию
-          await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error('RNNoise init timeout')), 6000);
-            rnNode.port.onmessage = (e) => {
-              clearTimeout(timeout);
-              if (e.data.type === 'ready' && e.data.success) resolve();
-              else reject(new Error(e.data.error || 'RNNoise init failed'));
-            };
-            // Передаём буфер WASM в ворклет
-            rnNode.port.postMessage({ type: 'init', wasmBuffer: wasmBuf }, [wasmBuf]);
-          });
-
+          // ВАЖНО: больше не отправляем postMessage и не ждём инициализации,
+          // потому что процессор инициализируется в конструкторе.
+          // Сразу подключаем.
           src.connect(rnNode);
           rnNode.connect(compressor);
           compressor.connect(dest);
           rnnoiseLoaded = true;
-          console.log('RNNoise загружен ✓ (WASM instantiate)');
+          console.log('RNNoise загружен ✓ (статический импорт)');
         } catch(rnErr) {
           console.warn('RNNoise недоступен, fallback на noise gate:', rnErr.message);
         }
