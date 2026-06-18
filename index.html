@@ -492,9 +492,9 @@
 
     async function initFirebase() {
       const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
-      const { getDatabase, ref, set, get, onValue, off, push, remove, onDisconnect, runTransaction } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js');
+      const { getDatabase, ref, set, get, onValue, off, push, remove, onDisconnect } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js');
       db = getDatabase(initializeApp(getFirebaseConfig()));
-      window._fb = { ref, set, get, onValue, off, push, remove, onDisconnect, runTransaction };
+      window._fb = { ref, set, get, onValue, off, push, remove, onDisconnect };
     }
 
     // ─── CALL & AUDIO PIPELINE ────────────────────────────────────────────────
@@ -647,6 +647,10 @@
         return;
       }
 
+      // --- ОЧИСТКА СТАРОЙ КОМНАТЫ ПЕРЕД ВХОДОМ ---
+      const oldRoomRef = window._fb.ref(db, `rooms/${roomName}`);
+      await window._fb.remove(oldRoomRef);
+
       hasLeft = false; inCall = false; isInitiator = false; pc = null;
       updateBadgesUI();
       await startWebRTC(roomName);
@@ -677,54 +681,29 @@
       _signalingBusy = false;
       _addedCandidates = new Set();
 
-      // Транзакция для атомарного захвата роли
-      const result = await window._fb.runTransaction(roomRef, (currentData) => {
-        if (currentData === null) {
-          // Комната пуста, становимся инициатором
-          return {
-            offer: null,
-            answer: null,
-            callerName: currentUser.name,
-            calleeName: null,
-            callerMicMuted: micMuted,
-            calleeMicMuted: null,
-            callerDeafened: deafened,
-            calleeDeafened: null,
-            iceCaller: null,
-            iceCallee: null
-          };
-        } else if (!currentData.offer) {
-          // Нет offer (не должно быть), становимся инициатором
-          return { ...currentData, callerName: currentUser.name };
-        } else if (!currentData.answer) {
-          // Есть offer, нет answer — становимся отвечающим
-          return { ...currentData, calleeName: currentUser.name };
-        } else {
-          // Уже есть и offer, и answer — комната занята
-          return; // undefined отменяет транзакцию
-        }
-      });
+      // Читаем текущее состояние комнаты
+      const snap = await window._fb.get(roomRef);
+      const data = snap.val();
+      console.log('Текущие данные комнаты:', data);
 
-      if (!result.committed) {
-        showError('Комната уже занята двумя участниками.');
+      // Если есть и offer, и answer — ошибка (не должно быть, т.к. мы очистили)
+      if (data && data.offer && data.answer) {
+        showError('Комната уже занята (остаточные данные)');
         $joinBtn.disabled = false;
         return;
       }
 
-      const data = result.snapshot.val();
-      if (!data.offer) {
-        // Мы инициатор
+      // Определяем роль
+      if (!data || !data.offer) {
+        // Нет offer -> мы инициатор
         isInitiator = true;
         console.log('Мы инициатор, создаём offer');
         await createOffer(roomName);
-      } else if (!data.answer) {
-        // Мы отвечающий
+      } else {
+        // Есть offer, но нет answer -> мы отвечающий
         isInitiator = false;
         console.log('Мы отвечающий, создаём answer');
         await createAnswer(roomName, data.offer);
-      } else {
-        // Не должно случиться
-        return;
       }
 
       // Подписываемся на изменения (ICE-кандидаты, статусы)
@@ -785,8 +764,9 @@
       await pc.setLocalDescription({ type: offer.type, sdp: patchedSdp });
       console.log('Оффер создан, устанавливаем в Firebase');
       const rRef = window._fb.ref(db, `rooms/${roomName}`);
-      await window._fb.update(rRef, {
+      await window._fb.set(rRef, {
         offer: { type: offer.type, sdp: patchedSdp },
+        callerName: currentUser.name,
         callerMicMuted: micMuted,
         callerDeafened: deafened
       });
@@ -803,6 +783,7 @@
       const rRef = window._fb.ref(db, `rooms/${roomName}`);
       await window._fb.update(rRef, {
         answer: { type: answer.type, sdp: patchedSdp },
+        calleeName: currentUser.name,
         calleeMicMuted: micMuted,
         calleeDeafened: deafened
       });
@@ -930,6 +911,9 @@
       clearTimeout(_autoReconnectTimer);
       if (roomRef && window._fb) { try { window._fb.off(roomRef); } catch(e){} }
       roomRef = null;
+      // Удаляем комнату из Firebase
+      const rRef = window._fb.ref(db, `rooms/${$roomInput.value}`);
+      await window._fb.remove(rRef);
       if (pc) { pc.close(); pc = null; }
 
       if (localStream) {
