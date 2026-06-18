@@ -648,7 +648,6 @@
       }
 
       // --- ОЧИСТКА СТАРОЙ КОМНАТЫ ПЕРЕД ВХОДОМ ---
-      // (если комната осталась от предыдущего звонка, удаляем её)
       const oldRoomRef = window._fb.ref(db, `rooms/${roomName}`);
       await window._fb.remove(oldRoomRef);
 
@@ -682,8 +681,8 @@
       _signalingBusy = false;
       _addedCandidates = new Set();
 
-      // Сначала создаём RTCPeerConnection и добавляем треки, чтобы сразу начать
-      pc = buildPC(roomName, null); // роль будет определена позже
+      // Создаём PC
+      pc = buildPC(roomName, null);
 
       // Читаем текущее состояние комнаты
       const snap = await window._fb.get(roomRef);
@@ -696,9 +695,9 @@
         return;
       }
 
-      // Если комната пуста, создаём offer и пытаемся атомарно установить его
+      // Если offer отсутствует, пытаемся стать инициатором
       if (!currentData || !currentData.offer) {
-        // Мы инициатор – создаём offer заранее
+        // Создаём offer
         const offer = await pc.createOffer();
         const patchedSdp = patchSdp(offer.sdp);
         await pc.setLocalDescription({ type: offer.type, sdp: patchedSdp });
@@ -716,17 +715,22 @@
           iceCallee: null
         };
 
-        // Транзакция: пытаемся установить эти данные, только если комната всё ещё пуста
+        // Транзакция: устанавливаем offer, только если поле offer всё ещё null
         const result = await window._fb.runTransaction(roomRef, (existing) => {
-          if (existing !== null) {
-            // Кто-то уже создал данные – отменяем транзакцию
+          if (existing && existing.offer) {
+            // offer уже есть – отменяем
             return; // undefined отменяет
           }
           return roomData;
         });
 
-        if (!result.committed) {
-          // Не удалось занять комнату – возможно, кто-то успел создать offer, становимся отвечающим
+        if (result.committed) {
+          // Мы инициатор
+          isInitiator = true;
+          console.log('Мы инициатор, offer установлен в Firebase');
+          window._fb.onDisconnect(roomRef).remove();
+        } else {
+          // Не удалось стать инициатором – возможно, кто-то успел создать offer, становимся отвечающим
           console.log('Не удалось стать инициатором, пробуем стать отвечающим');
           const newSnap = await window._fb.get(roomRef);
           const newData = newSnap.val();
@@ -738,11 +742,6 @@
             $joinBtn.disabled = false;
             return;
           }
-        } else {
-          // Транзакция успешна – мы инициатор
-          isInitiator = true;
-          console.log('Мы инициатор, offer установлен в Firebase');
-          window._fb.onDisconnect(roomRef).remove();
         }
       } else {
         // Есть offer, но нет answer – мы отвечающий
@@ -799,10 +798,6 @@
         s = s.replace(/(m=audio.*\r\n)/g, '$1a=ptime:10\r\na=maxptime:10\r\n');
       }
       return s;
-    }
-
-    async function createOffer(roomName) {
-      // Эта функция больше не используется, всё делается в startWebRTC
     }
 
     async function createAnswer(roomName, offerData) {
