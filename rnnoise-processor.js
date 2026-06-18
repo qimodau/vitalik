@@ -21,8 +21,40 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
       return;
     }
 
-    // Загружаем WASM напрямую (без динамического import)
-    WebAssembly.instantiate(wasmBinary, {})
+    // Импорты, которые ожидает скомпилированный WASM (соответствуют asmLibraryArg из rnnoise.js)
+    const importObject = {
+      a: {
+        // _emscripten_resize_heap
+        a: (requestedSize) => {
+          const oldSize = this._module.memory.buffer.byteLength;
+          requestedSize = requestedSize >>> 0;
+          const maxHeapSize = 2147483648; // 2 ГБ
+          if (requestedSize > maxHeapSize) return 0;
+          const alignUp = (x, multiple) => x + (multiple - x % multiple) % multiple;
+          for (let cutDown = 1; cutDown <= 4; cutDown *= 2) {
+            let overGrownHeapSize = oldSize * (1 + 0.2 / cutDown);
+            overGrownHeapSize = Math.min(overGrownHeapSize, requestedSize + 100663296);
+            let newSize = Math.min(maxHeapSize, alignUp(Math.max(requestedSize, overGrownHeapSize), 65536));
+            let pages = Math.ceil((newSize - oldSize) / 65536);
+            if (pages > 0) {
+              try {
+                this._module.memory.grow(pages);
+                return 1;
+              } catch (e) {}
+            }
+          }
+          return 0;
+        },
+        // _emscripten_memcpy_big
+        b: (dest, src, num) => {
+          const heapU8 = new Uint8Array(this._module.memory.buffer);
+          heapU8.copyWithin(dest, src, src + num);
+        }
+      }
+    };
+
+    // Загружаем WASM с правильными импортами
+    WebAssembly.instantiate(wasmBinary, importObject)
       .then((result) => {
         const exports = result.instance.exports;
         this._module = exports;
