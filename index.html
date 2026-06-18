@@ -491,50 +491,87 @@
 
       const isAndroid = /android/i.test(navigator.userAgent);
 
+      let rawStream;
       try {
         const audioConstraints = isAndroid
-          // На Android запрашиваем сырой поток без обработки
           ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1, sampleRate: 48000 }
           : { echoCancellation: true,  noiseSuppression: true,  autoGainControl: true,  channelCount: 1 };
-
-        const rawStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
-
-        if (isAndroid) {
-          // Android игнорирует constraints и всё равно применяет системную обработку.
-          // Обходим это: пропускаем поток через AudioContext — тогда уходит чистый аналоговый сигнал.
-          try {
-            const ctx = new AudioContext({ sampleRate: 48000 });
-            const src = ctx.createMediaStreamSource(rawStream);
-            // Лёгкий компрессор чтобы голос не был слишком тихим без AGC
-            const compressor = ctx.createDynamicsCompressor();
-            compressor.threshold.value = -24;
-            compressor.knee.value = 10;
-            compressor.ratio.value = 4;
-            compressor.attack.value = 0.003;
-            compressor.release.value = 0.25;
-            const dest = ctx.createMediaStreamDestination();
-            src.connect(compressor);
-            compressor.connect(dest);
-            // Сохраняем ctx чтобы закрыть при выходе
-            window._androidAudioCtx = ctx;
-            window._androidRawStream = rawStream;
-            localStream = dest.stream;
-          } catch(ctxErr) {
-            console.warn('AudioContext bypass не сработал, используем rawStream:', ctxErr);
-            localStream = rawStream;
-          }
-        } else {
-          localStream = rawStream;
-        }
+        rawStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
       } catch(e1) {
-        console.warn('getUserMedia с constraints не сработал, пробуем fallback:', e1);
         try {
-          localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          rawStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
         } catch(e2) {
-          console.warn('Ошибка доступа к микрофону:', e2);
           showError('Нет доступа к микрофону. Проверь разрешение для микрофона в браузере и что сайт открыт по HTTPS.');
           $joinBtn.disabled = false; return;
         }
+      }
+
+      // ── Noise gate через AudioWorklet / ScriptProcessor ──────────────────────
+      // Работает на всех платформах: на Android убирает шум без нативного шумоподава,
+      // на ПК убирает клавиатуру/мышь которые нативный шумоподав пропускает.
+      try {
+        const ctx = new AudioContext({ sampleRate: 48000 });
+        const src = ctx.createMediaStreamSource(rawStream);
+
+        // Анализатор для измерения громкости (gate)
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 512;
+        analyser.smoothingTimeConstant = 0.3;
+        const freqData = new Uint8Array(analyser.frequencyBinCount);
+
+        // Gain node — им управляет гейт
+        const gateGain = ctx.createGain();
+        gateGain.gain.value = 1;
+
+        // Компрессор — подтягивает тихий голос, не даёт пикам искажаться
+        const compressor = ctx.createDynamicsCompressor();
+        compressor.threshold.value = -20;
+        compressor.knee.value = 12;
+        compressor.ratio.value = isAndroid ? 5 : 3;
+        compressor.attack.value = 0.005;
+        compressor.release.value = 0.2;
+
+        src.connect(analyser);
+        src.connect(gateGain);
+        gateGain.connect(compressor);
+        const dest = ctx.createMediaStreamDestination();
+        compressor.connect(dest);
+
+        // Порог гейта: Android — 35 (как ты измерил), ПК — 18 (клавиатура ~12-15)
+        const GATE_THRESHOLD = isAndroid ? 35 : 18;
+        const HOLD_MS = 180; // держим открытым X мс после того как голос стих
+        let gateOpen = false;
+        let holdUntil = 0;
+
+        const gateInterval = setInterval(() => {
+          analyser.getByteFrequencyData(freqData);
+          // Смотрим только голосовые частоты: ~80Hz–4kHz (индексы ~2–85 при fftSize=512, sr=48k)
+          let sum = 0;
+          for (let i = 2; i < 86; i++) sum += freqData[i];
+          const vol = sum / 84;
+
+          const now = Date.now();
+          if (vol >= GATE_THRESHOLD) {
+            holdUntil = now + HOLD_MS;
+            if (!gateOpen) {
+              gateOpen = true;
+              gateGain.gain.setTargetAtTime(1, ctx.currentTime, 0.008); // плавно открываем
+            }
+          } else if (now > holdUntil && gateOpen) {
+            gateOpen = false;
+            gateGain.gain.setTargetAtTime(0, ctx.currentTime, 0.025); // плавно закрываем
+          }
+        }, 20);
+
+        window._androidAudioCtx = ctx;
+        window._androidRawStream = rawStream;
+        window._gateInterval = gateInterval;
+        localStream = dest.stream;
+      } catch(ctxErr) {
+        console.warn('AudioContext gate не сработал, используем rawStream:', ctxErr);
+        window._androidAudioCtx = null;
+        window._androidRawStream = rawStream;
+        localStream = rawStream;
       }
 
       hasLeft = false; inCall = false; isInitiator = false; pc = null;
@@ -723,6 +760,7 @@
         localStream = null;
       }
       // Закрываем Android AudioContext bypass если был создан
+      if (window._gateInterval) { clearInterval(window._gateInterval); window._gateInterval = null; }
       if (window._androidAudioCtx) {
         try { window._androidAudioCtx.close(); } catch(e) {}
         window._androidAudioCtx = null;
@@ -896,7 +934,7 @@
             `Sample rate: ${s.sampleRate || _dbgCtx.sampleRate} Hz`;
         }
         document.getElementById('dbgAndroid').textContent =
-          `Android bypass: ${window._androidAudioCtx ? '✅ активен' : '❌ не используется'}`;
+          `Gate: порог ${/android/i.test(navigator.userAgent) ? 35 : 18} | bypass: ${window._androidAudioCtx ? '✅' : '❌'}`;
 
         // Визуализация громкости
         const canvas = document.getElementById('dbgCanvas');
