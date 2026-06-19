@@ -1,79 +1,95 @@
-/**
- * rnnoise-processor.js
- * AudioWorklet для шумоподавления через RNNoise.
- */
+// rnnoise-processor.js
+// Кладёшь рядом с index.html + rnnoise.wasm + rnnoise.js
+// Оба файла: github.com/jitsi/rnnoise-wasm → ветка master → папка dist/
 
-const FRAME = 480; // 10 мс при 48 кГц
+const FRAME = 480;
 
 class RNNoiseProcessor extends AudioWorkletProcessor {
-  constructor(options) {
+  constructor() {
     super();
-    this._ready = false;
-    this._state = null;
-    this._module = null;
-    this._inputBuf = [];
-    this._outputBuf = [];
-    this._inputPtr = null;
-    this._outputPtr = null;
+    this._ready  = false;
+    this._mod    = null;
+    this._st     = 0;
+    this._inPtr  = 0;
+    this._outPtr = 0;
 
-    const { wasmBinary, scriptBase } = (options && options.processorOptions) || {};
-    if (!wasmBinary || !scriptBase) {
-      console.error('[RNNoise processor] wasmBinary или scriptBase не переданы');
-      return;
-    }
+    this._inBuf  = new Float32Array(FRAME);  // накапливаем входные сэмплы
+    this._outBuf = new Float32Array(FRAME);  // храним обработанные
+    this._inPos  = 0;  // сколько накоплено во входном
+    this._outPos = 0;  // сколько уже прочитано из выходного
+    this._outN   = 0;  // сколько готово в выходном
 
-    try {
-      // Синхронно загружаем rnnoise.js (importScripts работает в AudioWorklet)
-      importScripts(scriptBase + 'rnnoise.js');
-      const createRNNWasmModule = self.createRNNWasmModule;
-      if (typeof createRNNWasmModule !== 'function') {
-        throw new Error('createRNNWasmModule не определён после importScripts');
+    this.port.onmessage = async ({ data }) => {
+      if (data.type !== 'init') return;
+      try {
+        await this._load(data.wasmBuffer);
+        this.port.postMessage({ type: 'ready', success: true });
+      } catch (e) {
+        this.port.postMessage({ type: 'ready', success: false, error: String(e) });
       }
-      createRNNWasmModule({ wasmBinary }).then((mod) => {
-        this._module = mod;
-        this._inputPtr = mod._malloc(FRAME * 4);
-        this._outputPtr = mod._malloc(FRAME * 4);
-        this._state = mod._rnnoise_create(0);
-        this._ready = true;
-        console.log('[RNNoise processor] RNNoise загружен и готов');
-      }).catch((e) => {
-        console.error('[RNNoise processor] ошибка инициализации:', e);
-        this._ready = false;
-      });
-    } catch (e) {
-      console.error('[RNNoise processor] ошибка загрузки rnnoise.js:', e);
-      this._ready = false;
-    }
+    };
   }
 
-  _denoise(inputF32) {
-    const mod = this._module;
-    const heapF32 = new Float32Array(mod.memory.buffer);
-    heapF32.set(inputF32, this._inputPtr >> 2);
-    mod._rnnoise_process_frame(this._state, this._outputPtr, this._inputPtr);
-    return new Float32Array(mod.memory.buffer, this._outputPtr, FRAME);
+  async _load(wasmBuf) {
+    importScripts('./rnnoise.js');
+    const mod = await new Promise((res, rej) =>
+      createRNNWasmModule({ wasmBinary: wasmBuf })['ready'].then(res).catch(rej)
+    );
+    mod._rnnoise_init();
+    this._st     = mod._rnnoise_create(0);
+    this._inPtr  = mod._malloc(FRAME * 4);
+    this._outPtr = mod._malloc(FRAME * 4);
+    this._mod    = mod;
+    this._ready  = true;
+  }
+
+  _denoise() {
+    const heap = this._mod.HEAPF32;
+    const inB  = this._inPtr  >> 2;
+    const outB = this._outPtr >> 2;
+    for (let i = 0; i < FRAME; i++) heap[inB + i] = this._inBuf[i] * 32768;
+    this._mod._rnnoise_process_frame(this._st, this._outPtr, this._inPtr);
+    for (let i = 0; i < FRAME; i++) this._outBuf[i] = heap[outB + i] / 32768;
+    this._outPos = 0;
+    this._outN   = FRAME;
+    this._inPos  = 0;
   }
 
   process(inputs, outputs) {
-    const inCh  = inputs[0]?.[0];
-    const outCh = outputs[0]?.[0];
-    if (!inCh || !outCh) return true;
+    const inp = inputs[0]?.[0];
+    const out = outputs[0]?.[0];
+    if (!inp || !out) return true;
 
-    if (!this._ready) {
-      outCh.set(inCh);
-      return true;
-    }
+    if (!this._ready) { out.set(inp); return true; }
 
-    for (let i = 0; i < inCh.length; i++) this._inputBuf.push(inCh[i]);
+    let i = 0; // позиция в inp/out (оба всегда 128)
 
-    while (this._inputBuf.length >= FRAME) {
-      const frame = new Float32Array(this._inputBuf.splice(0, FRAME));
-      const denoised = this._denoise(frame);
-      for (let i = 0; i < denoised.length; i++) this._outputBuf.push(denoised[i]);
-    }
+    while (i < out.length) {
+      // Сначала отдаём всё что уже обработано
+      if (this._outN > 0) {
+        const take = Math.min(out.length - i, this._outN);
+        out.set(this._outBuf.subarray(this._outPos, this._outPos + take), i);
+        this._outPos += take;
+        this._outN   -= take;
+        i            += take;
+        continue;
+      }
 
-    for (let i = 0; i < outCh.length; i++) {
-      outCh[i] = this._outputBuf.length > 0 ? this._outputBuf.shift() : 0;
+      // Выходной буфер пуст — накапливаем входные до FRAME
+      const need = FRAME - this._inPos;
+      const have = inp.length - i;
+      const copy = Math.min(need, have);
+      this._inBuf.set(inp.subarray(i, i + copy), this._inPos);
+      this._inPos += copy;
+      i           += copy;
+
+      if (this._inPos === FRAME) {
+        this._denoise(); // готово — обрабатываем и кладём в outBuf
+      } else {
+        // Входных не хватило до 480 — тишина на остаток выходного
+        out.fill(0, i);
+        break;
+      }
     }
 
     return true;
