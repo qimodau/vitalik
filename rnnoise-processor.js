@@ -1,6 +1,4 @@
 // rnnoise-processor.js
-// Кладёшь рядом с index.html + rnnoise.wasm + rnnoise.js
-
 const FRAME = 480;
 
 class RNNoiseProcessor extends AudioWorkletProcessor {
@@ -11,7 +9,6 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
     this._st     = 0;
     this._inPtr  = 0;
     this._outPtr = 0;
-
     this._inBuf  = new Float32Array(FRAME);
     this._outBuf = new Float32Array(FRAME);
     this._inPos  = 0;
@@ -30,8 +27,13 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
   }
 
   async _load(wasmBuf, rnnoiseJsText) {
-    // Выполняем текст rnnoise.js прямо здесь — так обходим отсутствие importScripts
-    const fn = new Function(rnnoiseJsText + '\nreturn createRNNWasmModule;');
+    // Убираем export чтобы new Function не падал
+    const cleaned = rnnoiseJsText
+      .replace(/export\s+default\s+/g, '')
+      .replace(/export\s*\{[^}]*\}/g, '')
+      .replace(/export\s+(const|let|var|function|class)\s+/g, '$1 ');
+
+    const fn = new Function(cleaned + '\nreturn createRNNWasmModule;');
     const createRNNWasmModule = fn();
 
     const mod = await new Promise((res, rej) =>
