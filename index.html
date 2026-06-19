@@ -221,7 +221,6 @@
         <div style="font-weight:600;color:var(--text);margin-bottom:6px">🔍 Диагностика микрофона</div>
         <div id="dbgVolume">Громкость: —</div>
         <div id="dbgConstraints">Constraints: —</div>
-        <div id="dbgAndroid">Android bypass: —</div>
         <div id="dbgSampleRate">Sample rate: —</div>
         <canvas id="dbgCanvas" width="268" height="40" style="width:100%;margin-top:8px;border-radius:6px;background:var(--bg)"></canvas>
       </div>
@@ -516,71 +515,62 @@
         }
       }
 
-      // ── Аудио-пайплайн: RNNoise (ScriptProcessorNode) ──────────────────────
+      // ── Аудио-пайплайн: RNNoise (ScriptProcessorNode) с проверкой частоты ──
       const ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
       if (ctx.state === 'suspended') await ctx.resume();
-      const src = ctx.createMediaStreamSource(rawStream);
 
-      // ScriptProcessorNode (буфер 4096)
-      const bufferSize = 4096;
-      const spn = ctx.createScriptProcessor(bufferSize, 1, 1);
+      // Если фактическая частота не 48000, RNNoise работать не будет – используем сырой поток
+      if (ctx.sampleRate !== 48000) {
+        console.warn(`⚠️ Частота дискретизации ${ctx.sampleRate} Гц, RNNoise отключён. Используем сырой поток.`);
+        localStream = rawStream;
+      } else {
+        // Используем RNNoise
+        const src = ctx.createMediaStreamSource(rawStream);
+        const bufferSize = 4096;
+        const spn = ctx.createScriptProcessor(bufferSize, 1, 1);
 
-      let inBuf = new Float32Array(FRAME);
-      let inPos = 0;
-      let outBuf = new Float32Array(FRAME);
-      let outPos = 0;
-      let outN = 0;
+        let inBuf = new Float32Array(FRAME);
+        let inPos = 0;
+        let outBuf = new Float32Array(FRAME);
+        let outPos = 0;
+        let outN = 0;
 
-      spn.onaudioprocess = (e) => {
-        const input = e.inputBuffer.getChannelData(0);
-        const output = e.outputBuffer.getChannelData(0);
-        let i = 0;
-        while (i < input.length) {
-          // Если есть готовый обработанный фрейм — отдаём его
-          if (outN > 0) {
-            const take = Math.min(input.length - i, outN);
-            output.subarray(i, i + take).set(outBuf.subarray(outPos, outPos + take));
-            outPos += take;
-            outN -= take;
-            i += take;
-            continue;
+        spn.onaudioprocess = (e) => {
+          const input = e.inputBuffer.getChannelData(0);
+          const output = e.outputBuffer.getChannelData(0);
+          let i = 0;
+          while (i < input.length) {
+            if (outN > 0) {
+              const take = Math.min(input.length - i, outN);
+              output.subarray(i, i + take).set(outBuf.subarray(outPos, outPos + take));
+              outPos += take;
+              outN -= take;
+              i += take;
+              continue;
+            }
+            const copy = Math.min(FRAME - inPos, input.length - i);
+            inBuf.set(input.subarray(i, i + copy), inPos);
+            inPos += copy;
+            i += copy;
+            if (inPos === FRAME) {
+              const heap = rnnoiseMod.HEAPF32;
+              const inB = rnnoiseInPtr >> 2;
+              const outB = rnnoiseOutPtr >> 2;
+              for (let j = 0; j < FRAME; j++) heap[inB + j] = inBuf[j];
+              rnnoiseMod._rnnoise_process_frame(rnnoiseState, rnnoiseOutPtr, rnnoiseInPtr);
+              for (let j = 0; j < FRAME; j++) outBuf[j] = heap[outB + j];
+              outPos = 0;
+              outN = FRAME;
+              inPos = 0;
+            }
           }
-          // Накапливаем входные сэмплы
-          const copy = Math.min(FRAME - inPos, input.length - i);
-          inBuf.set(input.subarray(i, i + copy), inPos);
-          inPos += copy;
-          i += copy;
-          // Когда набрали FRAME — запускаем RNNoise
-          if (inPos === FRAME) {
-            const heap = rnnoiseMod.HEAPF32;
-            const inB = rnnoiseInPtr >> 2;
-            const outB = rnnoiseOutPtr >> 2;
-            // Передаём float без умножения на 32768!
-            for (let j = 0; j < FRAME; j++) heap[inB + j] = inBuf[j];
-            rnnoiseMod._rnnoise_process_frame(rnnoiseState, rnnoiseOutPtr, rnnoiseInPtr);
-            for (let j = 0; j < FRAME; j++) outBuf[j] = heap[outB + j];
-            outPos = 0;
-            outN = FRAME;
-            inPos = 0;
-          }
-        }
-      };
+        };
 
-      // Компрессор
-      const compressor = ctx.createDynamicsCompressor();
-      compressor.threshold.value = -20;
-      compressor.knee.value = 12;
-      compressor.ratio.value = isAndroid ? 5 : 3;
-      compressor.attack.value = 0.005;
-      compressor.release.value = 0.2;
-
-      const dest = ctx.createMediaStreamDestination();
-
-      src.connect(spn);
-      spn.connect(compressor);
-      compressor.connect(dest);
-
-      localStream = dest.stream;
+        const dest = ctx.createMediaStreamDestination();
+        src.connect(spn);
+        spn.connect(dest);
+        localStream = dest.stream;
+      }
 
       hasLeft = false; inCall = false; isInitiator = false; pc = null;
       updateBadgesUI();
@@ -702,7 +692,7 @@
     function buildPC(roomName, asInitiator) {
       const connection = new RTCPeerConnection(ICE_SERVERS);
       
-      // Отправляем чистый поток (на Android — без обработки, на других — с нативным шумодавом)
+      // Отправляем чистый поток
       localStream.getTracks().forEach(t => connection.addTrack(t, localStream));
       
       remoteStream = new MediaStream();
@@ -710,12 +700,12 @@
       connection.ontrack = (e) => {
         e.streams[0].getTracks().forEach(t => {
           remoteStream.addTrack(t);
-          // Минимизируем jitter buffer — основная причина задержки при разговоре
+          // Минимизируем jitter buffer
           if (connection.getReceivers) {
             const receivers = connection.getReceivers();
             receivers.forEach(r => {
               if (r.track === t && r.jitterBufferTarget !== undefined) {
-                r.jitterBufferTarget = 0; // браузер сам выберет минимум
+                r.jitterBufferTarget = 0;
               }
             });
           }
@@ -732,7 +722,6 @@
       connection.onconnectionstatechange = () => {
         const s = connection.connectionState;
         if (s === 'disconnected' && inCall && !hasLeft) {
-          // Даём 4 секунды на автовосстановление перед тем как объявить разрыв
           connection._reconnectTimer = setTimeout(() => {
             if (connection.connectionState === 'disconnected' && inCall && !hasLeft) {
               onPeerLeft();
@@ -749,7 +738,6 @@
       };
       connection.oniceconnectionstatechange = () => {
         const s = connection.iceConnectionState;
-        // ICE restart при failed — пересогласуем соединение
         if (s === 'failed' && asInitiator && inCall && !hasLeft) {
           console.warn('ICE failed, пробуем restartIce...');
           try { connection.restartIce(); } catch(e) {}
@@ -783,7 +771,7 @@
 
       if (hasLeft) return;
 
-      // Авто-переподключение: пересоздаём WebRTC через 2 секунды не трогая микрофон
+      // Авто-переподключение: пересоздаём WebRTC через 2 секунды
       setStatus('waiting', 'Переподключение...');
       clearTimeout(_autoReconnectTimer);
       _autoReconnectTimer = setTimeout(async () => {
@@ -791,7 +779,6 @@
         const roomName = $roomInput.value;
         setStatus('waiting', 'Ожидаем собеседника...');
         try {
-          // Чистим старую комнату в Firebase если мы были инициатором
           if (roomRef && window._fb) { try { window._fb.off(roomRef); } catch(e){} roomRef = null; }
           await startWebRTC(roomName);
         } catch(e) {
@@ -908,14 +895,13 @@
 
     function startSpeakingDetection() {
       try {
-        // Запускаем AudioContext только для визуализации. Он "слушает" поток сбоку, не ломая WebRTC.
         _audioCtxVis = new (window.AudioContext || window.webkitAudioContext)();
         
         if (localStream) {
           const src = _audioCtxVis.createMediaStreamSource(localStream);
           _analyserLocal = _audioCtxVis.createAnalyser(); 
           _analyserLocal.fftSize = 512; 
-          src.connect(_analyserLocal); // ВАЖНО: не подключаем к destination!
+          src.connect(_analyserLocal);
           
           const data = new Uint8Array(_analyserLocal.frequencyBinCount);
           _spkIntLocal = setInterval(() => {
@@ -956,8 +942,8 @@
       if (r) r.style.display = active ? 'none' : '';
     }
 
-    // ─── ДИАГНОСТИКА ────────────────────────────────────────────────────────────
-    let _dbgCtx = null, _dbgAnalyser = null, _dbgInterval = null, _dbgAnimFrame = null;
+    // ─── ДИАГНОСТИКА (убраны ссылки на старые переменные) ────────────────────
+    let _dbgCtx = null, _dbgAnalyser = null, _dbgAnimFrame = null;
 
     function startDebug() {
       if (!localStream) return;
@@ -968,7 +954,6 @@
         _dbgAnalyser.fftSize = 256;
         src.connect(_dbgAnalyser);
 
-        // Показываем constraints
         const track = localStream.getAudioTracks()[0];
         if (track) {
           const s = track.getSettings();
@@ -978,9 +963,8 @@
             `Sample rate: ${s.sampleRate || _dbgCtx.sampleRate} Hz`;
         }
         document.getElementById('dbgAndroid').textContent =
-          `Gate: ${/android/i.test(navigator.userAgent) ? 'Android (порог 22)' : 'ПК (детектор импульсов)'} | ctx: ${window._androidAudioCtx ? '✅' : '❌'}`;
+          `Android bypass: ${/android/i.test(navigator.userAgent) ? 'включён (нативные настройки отключены)' : 'ПК'}`;
 
-        // Визуализация громкости
         const canvas = document.getElementById('dbgCanvas');
         const ctx2d = canvas.getContext('2d');
         const data = new Uint8Array(_dbgAnalyser.frequencyBinCount);
@@ -992,13 +976,11 @@
           const vol = data.reduce((a,b)=>a+b,0) / data.length;
           frameCount++;
 
-          // Обновляем текст каждые 10 кадров
           if (frameCount % 10 === 0) {
             const bar = '█'.repeat(Math.round(vol/8)) + '░'.repeat(Math.max(0, 12 - Math.round(vol/8)));
             document.getElementById('dbgVolume').textContent = `Громкость: ${bar} ${Math.round(vol)}`;
           }
 
-          // Рисуем спектр
           ctx2d.fillStyle = '#0e0e10';
           ctx2d.fillRect(0, 0, canvas.width, canvas.height);
           const barW = canvas.width / data.length * 2;
