@@ -524,27 +524,8 @@
         // Пробуем загрузить RNNoise (нейросеть шумоподавления от Mozilla/Jitsi)
         let rnnoiseLoaded = false;
         try {
-          // Грузим wasm-модуль
-          const wasmResp = await fetch('./rnnoise.wasm');
-          if (!wasmResp.ok) throw new Error('rnnoise.wasm не найден');
-          const wasmBuf = await wasmResp.arrayBuffer();
-
-// Грузим rnnoise.js как текст и передаём в воркет
-const rnnoiseJsText = await fetch('./rnnoise.js').then(r => r.text());
-
-await ctx.audioWorklet.addModule('./rnnoise-processor.js');
-const rnNode = new AudioWorkletNode(ctx, 'rnnoise-processor');
-
-await new Promise((resolve, reject) => {
-  const timeout = setTimeout(() => reject(new Error('RNNoise init timeout')), 6000);
-  rnNode.port.onmessage = (e) => {
-    clearTimeout(timeout);
-    if (e.data.type === 'ready' && e.data.success) resolve();
-    else reject(new Error(e.data.error || 'RNNoise init failed'));
-  };
-  rnNode.port.postMessage({ type: 'init', wasmBuffer: wasmBuf, rnnoiseJs: rnnoiseJsText }, [wasmBuf]);
-});
-
+          await ctx.audioWorklet.addModule('./rnnoise-processor.js', { type: 'module' });
+          const rnNode = new AudioWorkletNode(ctx, 'rnnoise-processor');
           src.connect(rnNode);
           rnNode.connect(compressor);
           compressor.connect(dest);
