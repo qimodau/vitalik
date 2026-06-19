@@ -529,21 +529,21 @@
           if (!wasmResp.ok) throw new Error('rnnoise.wasm не найден');
           const wasmBuf = await wasmResp.arrayBuffer();
 
-          // Регистрируем AudioWorklet процессор
-          await ctx.audioWorklet.addModule('./rnnoise-processor.js');
-          const rnNode = new AudioWorkletNode(ctx, 'rnnoise-processor');
+// Грузим rnnoise.js как текст и передаём в воркет
+const rnnoiseJsText = await fetch('./rnnoise.js').then(r => r.text());
 
-          // Передаём wasm буфер в воркет (воркет сам его инстанциирует)
-          await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error('RNNoise init timeout')), 6000);
-            rnNode.port.onmessage = (e) => {
-              clearTimeout(timeout);
-              if (e.data.type === 'ready' && e.data.success) resolve();
-              else reject(new Error(e.data.error || 'RNNoise init failed'));
-            };
-            // Передаём как Transferable — быстро, без копирования
-            rnNode.port.postMessage({ type: 'init', wasmBuffer: wasmBuf }, [wasmBuf]);
-          });
+await ctx.audioWorklet.addModule('./rnnoise-processor.js');
+const rnNode = new AudioWorkletNode(ctx, 'rnnoise-processor');
+
+await new Promise((resolve, reject) => {
+  const timeout = setTimeout(() => reject(new Error('RNNoise init timeout')), 6000);
+  rnNode.port.onmessage = (e) => {
+    clearTimeout(timeout);
+    if (e.data.type === 'ready' && e.data.success) resolve();
+    else reject(new Error(e.data.error || 'RNNoise init failed'));
+  };
+  rnNode.port.postMessage({ type: 'init', wasmBuffer: wasmBuf, rnnoiseJs: rnnoiseJsText }, [wasmBuf]);
+});
 
           src.connect(rnNode);
           rnNode.connect(compressor);
