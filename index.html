@@ -64,36 +64,18 @@
     .btn-join.secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
     .btn-join.secondary:hover { border-color: var(--accent); color: var(--accent-hover); }
     .btn-join:disabled { opacity: 0.4; cursor: not-allowed; }
-    
-    /* FIX: Кнопки управления — компактнее и с переносом */
-    .controls { display: none; gap: 6px; width: 100%; max-width: 300px; flex-wrap: wrap; }
+    .controls { display: none; gap: 12px; width: 100%; }
     .controls.visible { display: flex; }
-    .ctrl-btn, .btn-leave {
-      flex: 1 1 30%;
-      min-width: 60px;
-      padding: 10px 4px;
-      border-radius: var(--radius);
-      border: 1px solid var(--border);
-      background: var(--surface);
-      color: var(--text);
-      cursor: pointer;
-      transition: background 0.15s, border-color 0.15s, color 0.15s;
-      font-family: inherit;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 4px;
-    }
+    .ctrl-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 8px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; font-family: inherit; }
     .ctrl-btn:hover { background: var(--surface2); border-color: var(--accent); }
     .ctrl-btn.active { background: rgba(224,64,64,0.12); border-color: var(--red); color: var(--red); }
     .ctrl-btn.active:hover { background: rgba(224,64,64,0.2); }
-    .ctrl-icon { font-size: 16px; line-height: 1; display: flex; align-items: center; justify-content: center; }
-    .ctrl-label { font-size: 10px; font-weight: 500; letter-spacing: 0.02em; color: inherit; text-align: center; line-height: 1.2; }
-    .btn-leave { border: none; background: var(--red); color: #fff; }
+    .ctrl-icon { font-size: 20px; line-height: 1; display: flex; align-items: center; justify-content: center; }
+    .badge svg { display: block; }
+    .ctrl-label { font-size: 11px; font-weight: 500; letter-spacing: 0.02em; color: inherit; text-align: center; line-height: 1.3; }
+    .btn-leave { flex: 0 0 auto; width: 56px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 8px; border-radius: var(--radius); border: none; background: var(--red); color: #fff; cursor: pointer; transition: background 0.15s; font-family: inherit; }
     .btn-leave:hover { background: var(--red-hover); }
     .btn-leave .ctrl-label { color: #fff; }
-    /* /FIX */
-
     .error-box { display: none; padding: 12px 16px; background: rgba(224,64,64,0.08); border: 1px solid rgba(224,64,64,0.3); border-radius: 8px; color: var(--red); font-size: 13px; line-height: 1.5; width: 100%; text-align: center; }
     .error-box.visible { display: block; }
     .overlay { display: none; position: fixed; inset: 0; z-index: 200; background: var(--bg); align-items: center; justify-content: center; padding: 20px; }
@@ -483,7 +465,7 @@
     };
 
     window.deleteAccount = async function(name) {
-      if (!db || name === ADMIN_NAME || !confirm(`Удалить «${name}?`)) return;
+      if (!db || name === ADMIN_NAME || !confirm(`Удалить «${name}»?`)) return;
       await window._fb.remove(window._fb.ref(db, `accounts/${name}`));
       await renderAccountList();
     };
@@ -492,9 +474,9 @@
 
     async function initFirebase() {
       const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
-      const { getDatabase, ref, set, get, onValue, off, push, remove, onDisconnect, runTransaction } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js');
+      const { getDatabase, ref, set, get, onValue, off, push, remove, onDisconnect } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js');
       db = getDatabase(initializeApp(getFirebaseConfig()));
-      window._fb = { ref, set, get, onValue, off, push, remove, onDisconnect, runTransaction };
+      window._fb = { ref, set, get, onValue, off, push, remove, onDisconnect };
     }
 
     // ─── CALL & AUDIO PIPELINE ────────────────────────────────────────────────
@@ -513,7 +495,7 @@
       try {
         const audioConstraints = isAndroid
           ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1, sampleRate: 48000 }
-          : { echoCancellation: true, noiseSuppression: false, autoGainControl: false, channelCount: 1 };
+          : { echoCancellation: true,  noiseSuppression: true,  autoGainControl: true,  channelCount: 1 };
         rawStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
       } catch(e1) {
         try {
@@ -524,132 +506,110 @@
         }
       }
 
-      // ── Аудио-пайплайн: RNNoise через ScriptProcessorNode ────────────────────
-      const RNNOISE_FRAME = 480;      // размер кадра RNNoise (10 мс)
-      const BUFFER_SIZE = 512;        // допустимый размер буфера (степень двойки)
-
-      let audioCtx = null;
-      let scriptNode = null;
-      let rnnoiseReady = false;
-      let rnnoiseModule = null;
-      let inputPtr = null, outputPtr = null;
-      let state = null;
-      let inputAccumulator = new Float32Array(0);
-      let outputAccumulator = new Float32Array(0);
-
+      // ── Аудио-пайплайн: RNNoise (нейросеть) → компрессор ────────────────────
       try {
-        // Загружаем RNNoise динамически (import работает в основном потоке)
-        const rnnoiseFactory = (await import('./rnnoise.js')).default;
-        rnnoiseModule = await rnnoiseFactory();
-        inputPtr = rnnoiseModule._malloc(RNNOISE_FRAME * 4);
-        outputPtr = rnnoiseModule._malloc(RNNOISE_FRAME * 4);
-        state = rnnoiseModule._rnnoise_create(0);
-        rnnoiseReady = true;
-        console.log('RNNoise загружен и инициализирован ✓');
+        const ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
+        if (ctx.state === 'suspended') await ctx.resume();
+        const src = ctx.createMediaStreamSource(rawStream);
 
-        audioCtx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
-        if (audioCtx.state === 'suspended') await audioCtx.resume();
+        const compressor = ctx.createDynamicsCompressor();
+        compressor.threshold.value = -20;
+        compressor.knee.value = 12;
+        compressor.ratio.value = isAndroid ? 5 : 3;
+        compressor.attack.value = 0.005;
+        compressor.release.value = 0.2;
 
-        // ScriptProcessorNode с допустимым размером буфера
-        scriptNode = audioCtx.createScriptProcessor(BUFFER_SIZE, 1, 1);
-        scriptNode.onaudioprocess = (e) => {
-          if (!rnnoiseReady) return;
-          const inputBuffer = e.inputBuffer.getChannelData(0);
-          const outputBuffer = e.outputBuffer.getChannelData(0);
+        const dest = ctx.createMediaStreamDestination();
 
-          // Накопление входных сэмплов
-          const newAcc = new Float32Array(inputAccumulator.length + inputBuffer.length);
-          newAcc.set(inputAccumulator);
-          newAcc.set(inputBuffer, inputAccumulator.length);
-          inputAccumulator = newAcc;
+        // Пробуем загрузить RNNoise (нейросеть шумоподавления от Mozilla/Jitsi)
+        let rnnoiseLoaded = false;
+        try {
+          // Грузим wasm-модуль
+          const wasmResp = await fetch('./rnnoise.wasm');
+          if (!wasmResp.ok) throw new Error('rnnoise.wasm не найден');
+          const wasmBuf = await wasmResp.arrayBuffer();
 
-          // Обработка полных кадров RNNoise
-          while (inputAccumulator.length >= RNNOISE_FRAME) {
-            const frame = inputAccumulator.slice(0, RNNOISE_FRAME);
-            inputAccumulator = inputAccumulator.slice(RNNOISE_FRAME);
+          // Регистрируем AudioWorklet процессор
+          await ctx.audioWorklet.addModule('./rnnoise-processor.js');
+          const rnNode = new AudioWorkletNode(ctx, 'rnnoise-processor');
 
-            const heapF32 = rnnoiseModule.HEAPF32;
-            if (!heapF32) {
-              outputBuffer.set(inputBuffer);
-              return;
-            }
-            heapF32.set(frame, inputPtr >> 2);
-            rnnoiseModule._rnnoise_process_frame(state, outputPtr, inputPtr);
-            const processed = new Float32Array(heapF32.buffer, outputPtr, RNNOISE_FRAME);
+          // Передаём wasm буфер в воркет (воркет сам его инстанциирует)
+          await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error('RNNoise init timeout')), 6000);
+            rnNode.port.onmessage = (e) => {
+              clearTimeout(timeout);
+              if (e.data.type === 'ready' && e.data.success) resolve();
+              else reject(new Error(e.data.error || 'RNNoise init failed'));
+            };
+            // Передаём как Transferable — быстро, без копирования
+            rnNode.port.postMessage({ type: 'init', wasmBuffer: wasmBuf }, [wasmBuf]);
+          });
 
-            const newOut = new Float32Array(outputAccumulator.length + processed.length);
-            newOut.set(outputAccumulator);
-            newOut.set(processed, outputAccumulator.length);
-            outputAccumulator = newOut;
-          }
+          src.connect(rnNode);
+          rnNode.connect(compressor);
+          compressor.connect(dest);
+          rnnoiseLoaded = true;
+          console.log('RNNoise загружен ✓');
+        } catch(rnErr) {
+          console.warn('RNNoise недоступен, fallback на noise gate:', rnErr.message);
+        }
 
-          // Заполнение выходного буфера
-          if (outputAccumulator.length >= BUFFER_SIZE) {
-            outputBuffer.set(outputAccumulator.slice(0, BUFFER_SIZE));
-            outputAccumulator = outputAccumulator.slice(BUFFER_SIZE);
+        if (!rnnoiseLoaded) {
+          // ── Fallback: noise gate (старый алгоритм) ───────────────────────────
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 512;
+          analyser.smoothingTimeConstant = 0;
+          const freqData = new Uint8Array(analyser.frequencyBinCount);
+          const gateGain = ctx.createGain();
+          gateGain.gain.value = 1;
+          src.connect(analyser);
+          src.connect(gateGain);
+          gateGain.connect(compressor);
+          compressor.connect(dest);
+
+          const HOLD_MS = 220;
+          let gateOpen = true, holdUntil = 0, gateActive = false;
+          setTimeout(() => { gateActive = true; }, 1500);
+
+          if (isAndroid) {
+            const GATE_THRESHOLD = 22;
+            window._gateInterval = setInterval(() => {
+              if (!gateActive) return;
+              if (ctx.state === 'suspended') { ctx.resume(); return; }
+              analyser.getByteFrequencyData(freqData);
+              let sum = 0; for (let i = 2; i < 86; i++) sum += freqData[i];
+              const vol = sum / 84, now = Date.now();
+              if (vol >= GATE_THRESHOLD) { holdUntil = now + HOLD_MS; if (!gateOpen) { gateOpen = true; gateGain.gain.setTargetAtTime(1, ctx.currentTime, 0.008); } }
+              else if (now > holdUntil && gateOpen) { gateOpen = false; gateGain.gain.setTargetAtTime(0, ctx.currentTime, 0.025); }
+            }, 20);
           } else {
-            outputBuffer.set(outputAccumulator);
-            outputBuffer.fill(0, outputAccumulator.length);
-            outputAccumulator = new Float32Array(0);
+            const VOICE_THRESHOLD = 8, IMPULSE_RISE = 18, IMPULSE_BLOCK_MS = 130;
+            let prevVol = 0, blockedUntil = 0, voiceHoldUntil = 0;
+            window._gateInterval = setInterval(() => {
+              if (!gateActive) return;
+              if (ctx.state === 'suspended') { ctx.resume(); return; }
+              analyser.getByteFrequencyData(freqData);
+              let sum = 0; for (let i = 2; i < 86; i++) sum += freqData[i];
+              const vol = sum / 84, now = Date.now(), dVol = vol - prevVol; prevVol = vol;
+              if (dVol > IMPULSE_RISE && vol > VOICE_THRESHOLD) blockedUntil = now + IMPULSE_BLOCK_MS;
+              const blocked = now < blockedUntil;
+              if (!blocked && vol >= VOICE_THRESHOLD) { voiceHoldUntil = now + HOLD_MS; if (!gateOpen) { gateOpen = true; gateGain.gain.setTargetAtTime(1, ctx.currentTime, 0.008); } }
+              else if (now > voiceHoldUntil && gateOpen) { gateOpen = false; gateGain.gain.setTargetAtTime(0, ctx.currentTime, 0.030); }
+            }, 20);
           }
-        };
+        }
 
-        const src = audioCtx.createMediaStreamSource(rawStream);
-        src.connect(scriptNode);
-
-        const compressor = audioCtx.createDynamicsCompressor();
-        compressor.threshold.value = -16;
-        compressor.knee.value = 8;
-        compressor.ratio.value = isAndroid ? 2.5 : 1.5;
-        compressor.attack.value = 0.003;
-        compressor.release.value = 0.15;
-        scriptNode.connect(compressor);
-
-        const dest = audioCtx.createMediaStreamDestination();
-        compressor.connect(dest);
+        if (dest.stream.getAudioTracks().length === 0) throw new Error('dest.stream пустой');
+        window._androidAudioCtx = ctx;
+        window._androidRawStream = rawStream;
         localStream = dest.stream;
 
-        window._audioCtx = audioCtx;
-        window._scriptNode = scriptNode;
-        window._rnnoiseModule = rnnoiseModule;
-        window._state = state;
+      } catch(ctxErr) {
+        console.warn('AudioContext не сработал, используем rawStream:', ctxErr);
+        window._androidAudioCtx = null;
         window._androidRawStream = rawStream;
-        window._androidAudioCtx = audioCtx;
-
-      } catch (err) {
-        console.warn('RNNoise не загрузился, используем fallback noise gate:', err.message);
-        // ── Fallback: noise gate ──────────────────────────────────────────────
-        audioCtx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
-        if (audioCtx.state === 'suspended') await audioCtx.resume();
-        const src = audioCtx.createMediaStreamSource(rawStream);
-        const compressor = audioCtx.createDynamicsCompressor();
-        compressor.threshold.value = -16;
-        compressor.knee.value = 8;
-        compressor.ratio.value = isAndroid ? 2.5 : 1.5;
-        compressor.attack.value = 0.003;
-        compressor.release.value = 0.15;
-        src.connect(compressor);
-        const dest = audioCtx.createMediaStreamDestination();
-        compressor.connect(dest);
-        localStream = dest.stream;
-        window._audioCtx = audioCtx;
-        window._scriptNode = null;
-        window._rnnoiseModule = null;
-        window._state = null;
-        window._androidRawStream = rawStream;
-        window._androidAudioCtx = audioCtx;
+        localStream = rawStream;
       }
-
-      // Проверяем, что localStream имеет аудио-треки
-      if (!localStream || localStream.getAudioTracks().length === 0) {
-        showError('Не удалось создать аудиопоток.');
-        $joinBtn.disabled = false;
-        return;
-      }
-
-      // --- ОЧИСТКА СТАРОЙ КОМНАТЫ ПЕРЕД ВХОДОМ ---
-      const oldRoomRef = window._fb.ref(db, `rooms/${roomName}`);
-      await window._fb.remove(oldRoomRef);
 
       hasLeft = false; inCall = false; isInitiator = false; pc = null;
       updateBadgesUI();
@@ -672,111 +632,23 @@
     }
 
     async function startWebRTC(roomName) {
-      console.log('startWebRTC вызван для комнаты:', roomName);
-      if (roomRef && window._fb) {
-        try { window._fb.off(roomRef); } catch(e) {}
-        roomRef = null;
-      }
+      // Снимаем старый listener если был (важно при "Войти обратно")
+      if (roomRef && window._fb) { try { window._fb.off(roomRef); } catch(e){} }
       roomRef = window._fb.ref(db, `rooms/${roomName}`);
-      _signalingBusy = false;
-      _addedCandidates = new Set();
+      _signalingBusy = false; _addedCandidates = new Set();
 
-      // Создаём PC
-      pc = buildPC(roomName, null);
-
-      // Читаем текущее состояние комнаты
-      const snap = await window._fb.get(roomRef);
-      const currentData = snap.val();
-      console.log('Текущие данные комнаты:', currentData);
-
-      if (currentData && currentData.offer && currentData.answer) {
-        showError('Комната уже занята двумя участниками.');
-        $joinBtn.disabled = false;
-        return;
-      }
-
-      // Если offer отсутствует, пытаемся стать инициатором
-      if (!currentData || !currentData.offer) {
-        // Создаём offer
-        const offer = await pc.createOffer();
-        const patchedSdp = patchSdp(offer.sdp);
-        await pc.setLocalDescription({ type: offer.type, sdp: patchedSdp });
-
-        const roomData = {
-          offer: { type: offer.type, sdp: patchedSdp },
-          callerName: currentUser.name,
-          callerMicMuted: micMuted,
-          callerDeafened: deafened,
-          answer: null,
-          calleeName: null,
-          calleeMicMuted: null,
-          calleeDeafened: null,
-          iceCaller: null,
-          iceCallee: null
-        };
-
-        // Транзакция: устанавливаем offer, только если поле offer всё ещё null
-        const result = await window._fb.runTransaction(roomRef, (existing) => {
-          if (existing && existing.offer) {
-            // offer уже есть – отменяем
-            return; // undefined отменяет
-          }
-          return roomData;
-        });
-
-        if (result.committed) {
-          // Мы инициатор
-          isInitiator = true;
-          console.log('Мы инициатор, offer установлен в Firebase');
-          window._fb.onDisconnect(roomRef).remove();
-        } else {
-          // Не удалось стать инициатором – возможно, кто-то успел создать offer, становимся отвечающим
-          console.log('Не удалось стать инициатором, пробуем стать отвечающим');
-          const newSnap = await window._fb.get(roomRef);
-          const newData = newSnap.val();
-          if (newData && newData.offer && !newData.answer) {
-            isInitiator = false;
-            await createAnswer(roomName, newData.offer);
-          } else {
-            showError('Не удалось войти в комнату.');
-            $joinBtn.disabled = false;
-            return;
-          }
-        }
-      } else {
-        // Есть offer, но нет answer – мы отвечающий
-        isInitiator = false;
-        console.log('Мы отвечающий, создаём answer');
-        await createAnswer(roomName, currentData.offer);
-      }
-
-      // Подписываемся на изменения (ICE-кандидаты, статусы)
       window._fb.onValue(roomRef, async (snap) => {
         if (hasLeft) return;
-        const newData = snap.val();
-        console.log('onValue new data:', newData);
-        if (newData && pc) {
-          // Добавляем ICE-кандидаты от собеседника
-          const theirKey = isInitiator ? 'iceCallee' : 'iceCaller';
-          if (newData[theirKey]) {
-            Object.entries(newData[theirKey]).forEach(async ([key, c]) => {
-              if (c?.candidate && !_addedCandidates.has(key)) {
-                _addedCandidates.add(key);
-                try {
-                  await pc.addIceCandidate(new RTCIceCandidate(c));
-                } catch(e) {
-                  console.warn('addIceCandidate error:', e);
-                }
-              }
-            });
-          }
-          // Обновляем имя и бейджи собеседника
-          const peerName = isInitiator ? newData.calleeName : newData.callerName;
+        const data = snap.val();
+        
+        if (data) {
+          const peerName = isInitiator ? data.calleeName : data.callerName;
           if (peerName && peerName !== $peerName.textContent) {
             await setPeerNameAndAvatar(peerName);
           }
-          const peerMicMuted = isInitiator ? newData.calleeMicMuted : newData.callerMicMuted;
-          const peerDeafened = isInitiator ? newData.calleeDeafened : newData.callerDeafened;
+
+          const peerMicMuted = isInitiator ? data.calleeMicMuted : data.callerMicMuted;
+          const peerDeafened = isInitiator ? data.calleeDeafened : data.callerDeafened;
           const $peerBadges = document.getElementById('peerBadges');
           if ($peerBadges) {
             let peerHtml = '';
@@ -785,84 +657,111 @@
             $peerBadges.innerHTML = peerHtml;
           }
         }
+
+        if (!data || !data.offer) {
+          if (inCall || _signalingBusy || isInitiator) return;
+          _signalingBusy = true; isInitiator = true;
+          await createOffer(roomName); _signalingBusy = false;
+        } else if (data.offer && !data.answer && !isInitiator) {
+          if (inCall || _signalingBusy) return;
+          _signalingBusy = true; isInitiator = false;
+          await createAnswer(roomName, data.offer); _signalingBusy = false;
+        } else if (data.answer && isInitiator && pc && pc.signalingState !== 'stable') {
+          await pc.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(()=>{});
+        }
+        
+        if (data && pc) {
+          const theirKey = isInitiator ? 'iceCallee' : 'iceCaller';
+          if (data[theirKey]) Object.entries(data[theirKey]).forEach(async ([key, c]) => {
+            if (c?.candidate && !_addedCandidates.has(key)) {
+              _addedCandidates.add(key);
+              try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch(e) {}
+            }
+          });
+        }
       });
     }
 
+    // Патчим SDP: меньше задержка (ptime=10), без DTX, нормальный битрейт
     function patchSdp(sdp) {
       let s = sdp;
+      // Opus параметры: без DTX, без стерео, битрейт 32kbps
       s = s.replace(/(a=fmtp:111 )(.*)/g, (_, prefix, params) => {
         if (params.includes('usedtx')) return prefix + params;
         return `${prefix}${params};usedtx=0;stereo=0;maxaveragebitrate=32000`;
       });
+      // ptime=10 — пакет каждые 10мс вместо 20мс, вдвое меньше буферизация
       if (!s.includes('a=ptime:')) {
         s = s.replace(/(m=audio.*\r\n)/g, '$1a=ptime:10\r\na=maxptime:10\r\n');
       }
       return s;
     }
 
+    async function createOffer(roomName) {
+      setStatus('waiting', 'Ожидаем собеседника...');
+      pc = buildPC(roomName, true);
+      const offer = await pc.createOffer();
+      const patchedSdp = patchSdp(offer.sdp);
+      await pc.setLocalDescription({ type: offer.type, sdp: patchedSdp });
+      const rRef = window._fb.ref(db, `rooms/${roomName}`);
+      // Полностью перезаписываем комнату — убираем мусор от прошлого сеанса
+      await window._fb.set(rRef, { 
+        offer: { type: offer.type, sdp: patchedSdp }, 
+        callerName: currentUser.name,
+        callerMicMuted: micMuted,
+        callerDeafened: deafened
+      });
+      window._fb.onDisconnect(rRef).remove();
+    }
+
     async function createAnswer(roomName, offerData) {
-      if (!pc) {
-        pc = buildPC(roomName, false);
-      }
-      // Устанавливаем удалённое описание из оффера
+      pc = buildPC(roomName, false);
       await pc.setRemoteDescription(new RTCSessionDescription(offerData));
       const answer = await pc.createAnswer();
       const patchedSdp = patchSdp(answer.sdp);
       await pc.setLocalDescription({ type: answer.type, sdp: patchedSdp });
-      console.log('Ответ создан, устанавливаем в Firebase');
+      
       const rRef = window._fb.ref(db, `rooms/${roomName}`);
-      // Атомарно обновляем answer и calleeName
-      await window._fb.update(rRef, {
-        answer: { type: answer.type, sdp: patchedSdp },
-        calleeName: currentUser.name,
-        calleeMicMuted: micMuted,
-        calleeDeafened: deafened
-      });
+      await window._fb.set(window._fb.ref(db, `rooms/${roomName}/answer`), { type: answer.type, sdp: patchedSdp });
+      await window._fb.set(window._fb.ref(db, `rooms/${roomName}/calleeName`), currentUser.name);
+      await window._fb.set(window._fb.ref(db, `rooms/${roomName}/calleeMicMuted`), micMuted);
+      await window._fb.set(window._fb.ref(db, `rooms/${roomName}/calleeDeafened`), deafened);
     }
 
     function buildPC(roomName, asInitiator) {
       const connection = new RTCPeerConnection(ICE_SERVERS);
-
-      localStream.getTracks().forEach(t => {
-        connection.addTrack(t, localStream);
-        console.log('Добавлен трек:', t.kind, t.id);
-      });
-
+      
+      // Отправляем чистый поток (на Android — без обработки, на других — с нативным шумодавом)
+      localStream.getTracks().forEach(t => connection.addTrack(t, localStream));
+      
       remoteStream = new MediaStream();
       $remoteAudio.srcObject = remoteStream;
       connection.ontrack = (e) => {
-        console.log('ontrack получен, добавляем треки в remoteStream');
         e.streams[0].getTracks().forEach(t => {
           remoteStream.addTrack(t);
+          // Минимизируем jitter buffer — основная причина задержки при разговоре
           if (connection.getReceivers) {
             const receivers = connection.getReceivers();
             receivers.forEach(r => {
               if (r.track === t && r.jitterBufferTarget !== undefined) {
-                r.jitterBufferTarget = 0;
+                r.jitterBufferTarget = 0; // браузер сам выберет минимум
               }
             });
           }
         });
-        if (!inCall) {
-          inCall = true;
-          onConnected();
-        }
+        if (!inCall) { inCall = true; onConnected(); }
       };
       connection.onicecandidate = (e) => {
         if (e.candidate) {
-          console.log('ICE кандидат:', e.candidate.candidate);
-          const asInit = asInitiator !== null ? asInitiator : isInitiator;
-          window._fb.push(window._fb.ref(db, `rooms/${roomName}/${asInit ? 'iceCaller' : 'iceCallee'}`), {
-            candidate: e.candidate.candidate,
-            sdpMid: e.candidate.sdpMid,
-            sdpMLineIndex: e.candidate.sdpMLineIndex
+          window._fb.push(window._fb.ref(db, `rooms/${roomName}/${asInitiator ? 'iceCaller' : 'iceCallee'}`), {
+            candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex
           });
         }
       };
       connection.onconnectionstatechange = () => {
         const s = connection.connectionState;
-        console.log('connectionState:', s);
         if (s === 'disconnected' && inCall && !hasLeft) {
+          // Даём 4 секунды на автовосстановление перед тем как объявить разрыв
           connection._reconnectTimer = setTimeout(() => {
             if (connection.connectionState === 'disconnected' && inCall && !hasLeft) {
               onPeerLeft();
@@ -879,8 +778,8 @@
       };
       connection.oniceconnectionstatechange = () => {
         const s = connection.iceConnectionState;
-        console.log('iceConnectionState:', s);
-        if (s === 'failed' && isInitiator && inCall && !hasLeft) {
+        // ICE restart при failed — пересогласуем соединение
+        if (s === 'failed' && asInitiator && inCall && !hasLeft) {
           console.warn('ICE failed, пробуем restartIce...');
           try { connection.restartIce(); } catch(e) {}
         }
@@ -890,25 +789,20 @@
 
     function onConnected() {
       setStatus('connected', 'Соединение установлено');
-      $avatars.classList.add('visible');
-      $controls.classList.add('visible');
-      $joinBtn.style.display = 'none';
-      setCallUI(true);
+      $avatars.classList.add('visible'); $controls.classList.add('visible');
+      $joinBtn.style.display = 'none'; setCallUI(true);
       syncMyStatus();
       setTimeout(startSpeakingDetection, 300);
+      // Показываем кнопку диагностики
       document.getElementById('debugBtn').style.display = '';
       startDebug();
-      console.log('Звонок установлен!');
     }
 
     let _autoReconnectTimer = null;
 
     function onPeerLeft() {
       if (pc) { try { pc.close(); } catch(e){} pc = null; }
-      inCall = false;
-      isInitiator = false;
-      _signalingBusy = false;
-      _addedCandidates = new Set();
+      inCall = false; isInitiator = false; _signalingBusy = false; _addedCandidates = new Set();
       stopSpeakingDetection();
       $avatars.classList.remove('visible');
       document.getElementById('peerAvatar').innerHTML = '<span id="peerAvatarText">👤</span>';
@@ -918,6 +812,7 @@
 
       if (hasLeft) return;
 
+      // Авто-переподключение: пересоздаём WebRTC через 2 секунды не трогая микрофон
       setStatus('waiting', 'Переподключение...');
       clearTimeout(_autoReconnectTimer);
       _autoReconnectTimer = setTimeout(async () => {
@@ -925,84 +820,49 @@
         const roomName = $roomInput.value;
         setStatus('waiting', 'Ожидаем собеседника...');
         try {
+          // Чистим старую комнату в Firebase если мы были инициатором
           if (roomRef && window._fb) { try { window._fb.off(roomRef); } catch(e){} roomRef = null; }
           await startWebRTC(roomName);
         } catch(e) {
           setStatus('error', 'Не удалось переподключиться');
           setCallUI(false);
-          $joinBtn.disabled = false;
-          $joinBtn.style.display = '';
+          $joinBtn.disabled = false; $joinBtn.style.display = '';
         }
       }, 2000);
     }
 
     window.leaveCall = async function() {
-      hasLeft = true;
-      inCall = false;
-      isInitiator = false;
+      hasLeft = true; inCall = false; isInitiator = false;
       clearTimeout(_autoReconnectTimer);
       if (roomRef && window._fb) { try { window._fb.off(roomRef); } catch(e){} }
       roomRef = null;
-      // Удаляем комнату из Firebase
-      const rRef = window._fb.ref(db, `rooms/${$roomInput.value}`);
-      await window._fb.remove(rRef);
       if (pc) { pc.close(); pc = null; }
-
+      
       if (localStream) {
         localStream.getTracks().forEach(t=>t.stop());
         localStream = null;
       }
+      // Закрываем Android AudioContext bypass если был создан
       if (window._gateInterval) { clearInterval(window._gateInterval); window._gateInterval = null; }
-
-      // Закрываем AudioContext и освобождаем RNNoise
-      if (window._audioCtx) {
-        try { window._audioCtx.close(); } catch(e) {}
-        window._audioCtx = null;
-      }
-      if (window._scriptNode) {
-        try { window._scriptNode.disconnect(); } catch(e) {}
-        window._scriptNode = null;
-      }
-      if (window._rnnoiseModule) {
-        try {
-          window._rnnoiseModule._rnnoise_destroy(window._state);
-          window._rnnoiseModule._free(window._inputPtr);
-          window._rnnoiseModule._free(window._outputPtr);
-        } catch(e) {}
-        window._rnnoiseModule = null;
-        window._state = null;
-        window._inputPtr = null;
-        window._outputPtr = null;
+      if (window._androidAudioCtx) {
+        try { window._androidAudioCtx.close(); } catch(e) {}
+        window._androidAudioCtx = null;
       }
       if (window._androidRawStream) {
         window._androidRawStream.getTracks().forEach(t=>t.stop());
         window._androidRawStream = null;
       }
       $remoteAudio.srcObject = null;
-
-      $controls.classList.remove('visible');
-      $avatars.classList.remove('visible');
+      
+      $controls.classList.remove('visible'); $avatars.classList.remove('visible');
       document.getElementById('myBadges').innerHTML = '';
       document.getElementById('peerBadges').innerHTML = '';
       document.getElementById('peerAvatar').innerHTML = '<span id="peerAvatarText">👤</span>';
       $peerName.textContent = 'Собеседник';
-      setStatus('idle', 'Ты вышел из звонка');
-      setCallUI(false);
-      stopSpeakingDetection();
-      micMuted = false;
-      deafened = false;
-      updateMicUI();
-      updateDeafUI();
-      updateBadgesUI();
-
-      _signalingBusy = false;
-      _addedCandidates = new Set();
-      hasLeft = false;
-
-      $joinBtn.disabled = false;
-      $joinBtn.style.display = '';
-      $joinBtn.textContent = 'Войти в звонок';
-      $joinBtn.className = 'btn-join primary';
+      setStatus('idle', 'Ты вышел из звонка'); setCallUI(false); stopSpeakingDetection();
+      micMuted = false; deafened = false; updateMicUI(); updateDeafUI(); updateBadgesUI();
+      $joinBtn.disabled = false; $joinBtn.style.display = '';
+      $joinBtn.textContent = 'Войти обратно'; $joinBtn.className = 'btn-join secondary';
       stopDebug();
       document.getElementById('debugBtn').style.display = 'none';
       document.getElementById('debugPanel').style.display = 'none';
@@ -1011,12 +871,14 @@
     window.toggleMic = function() {
       if (!localStream) return;
       micMuted = !micMuted;
+      
       localStream.getAudioTracks().forEach(t => { t.enabled = !micMuted; });
+      
       updateMicUI();
       updateBadgesUI();
       syncMyStatus();
     };
-
+    
     const ICON_MIC_ON  = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
     const ICON_MIC_OFF = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
     const ICON_MIC_OFF_SM = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
@@ -1026,10 +888,10 @@
       else           { $micIcon.innerHTML = ICON_MIC_ON;  $micLabel.textContent = 'Микрофон'; $micBtn.classList.remove('active'); }
     }
 
-    window.toggleDeaf = function() {
-      deafened = !deafened;
-      $remoteAudio.muted = deafened;
-      updateDeafUI();
+    window.toggleDeaf = function() { 
+      deafened = !deafened; 
+      $remoteAudio.muted = deafened; 
+      updateDeafUI(); 
       updateBadgesUI();
       syncMyStatus();
     };
@@ -1079,18 +941,21 @@
       } catch(e) {}
     })();
 
-    // ─── SPEAKING DETECTION ──────────────────────────────────────────────────
+    // ─── SPEAKING DETECTION (НЕ ВЛИЯЕТ НА ПЕРЕДАЧУ ЗВУКА) ────────────────────
     let _audioCtxVis = null, _analyserLocal = null, _analyserRemote = null;
     let _spkIntLocal = null, _spkIntRemote = null;
 
     function startSpeakingDetection() {
       try {
+        // Запускаем AudioContext только для визуализации. Он "слушает" поток сбоку, не ломая WebRTC.
         _audioCtxVis = new (window.AudioContext || window.webkitAudioContext)();
+        
         if (localStream) {
           const src = _audioCtxVis.createMediaStreamSource(localStream);
-          _analyserLocal = _audioCtxVis.createAnalyser();
-          _analyserLocal.fftSize = 512;
-          src.connect(_analyserLocal);
+          _analyserLocal = _audioCtxVis.createAnalyser(); 
+          _analyserLocal.fftSize = 512; 
+          src.connect(_analyserLocal); // ВАЖНО: не подключаем к destination!
+          
           const data = new Uint8Array(_analyserLocal.frequencyBinCount);
           _spkIntLocal = setInterval(() => {
             if (!_analyserLocal) return;
@@ -1101,9 +966,10 @@
         }
         if ($remoteAudio.srcObject) {
           const src2 = _audioCtxVis.createMediaStreamSource($remoteAudio.srcObject);
-          _analyserRemote = _audioCtxVis.createAnalyser();
-          _analyserRemote.fftSize = 512;
+          _analyserRemote = _audioCtxVis.createAnalyser(); 
+          _analyserRemote.fftSize = 512; 
           src2.connect(_analyserRemote);
+          
           const data2 = new Uint8Array(_analyserRemote.frequencyBinCount);
           _spkIntRemote = setInterval(() => {
             if (!_analyserRemote) return;
@@ -1130,7 +996,7 @@
     }
 
     // ─── ДИАГНОСТИКА ────────────────────────────────────────────────────────────
-    let _dbgCtx = null, _dbgAnalyser = null, _dbgAnimFrame = null;
+    let _dbgCtx = null, _dbgAnalyser = null, _dbgInterval = null, _dbgAnimFrame = null;
 
     function startDebug() {
       if (!localStream) return;
@@ -1141,6 +1007,7 @@
         _dbgAnalyser.fftSize = 256;
         src.connect(_dbgAnalyser);
 
+        // Показываем constraints
         const track = localStream.getAudioTracks()[0];
         if (track) {
           const s = track.getSettings();
@@ -1150,8 +1017,9 @@
             `Sample rate: ${s.sampleRate || _dbgCtx.sampleRate} Hz`;
         }
         document.getElementById('dbgAndroid').textContent =
-          `Gate: ${/android/i.test(navigator.userAgent) ? 'Android (порог 18)' : 'ПК (детектор импульсов)'} | ctx: ${window._audioCtx ? '✅' : '❌'}`;
+          `Gate: ${/android/i.test(navigator.userAgent) ? 'Android (порог 22)' : 'ПК (детектор импульсов)'} | ctx: ${window._androidAudioCtx ? '✅' : '❌'}`;
 
+        // Визуализация громкости
         const canvas = document.getElementById('dbgCanvas');
         const ctx2d = canvas.getContext('2d');
         const data = new Uint8Array(_dbgAnalyser.frequencyBinCount);
@@ -1162,10 +1030,14 @@
           _dbgAnalyser.getByteFrequencyData(data);
           const vol = data.reduce((a,b)=>a+b,0) / data.length;
           frameCount++;
+
+          // Обновляем текст каждые 10 кадров
           if (frameCount % 10 === 0) {
             const bar = '█'.repeat(Math.round(vol/8)) + '░'.repeat(Math.max(0, 12 - Math.round(vol/8)));
             document.getElementById('dbgVolume').textContent = `Громкость: ${bar} ${Math.round(vol)}`;
           }
+
+          // Рисуем спектр
           ctx2d.fillStyle = '#0e0e10';
           ctx2d.fillRect(0, 0, canvas.width, canvas.height);
           const barW = canvas.width / data.length * 2;
