@@ -1,6 +1,5 @@
 // rnnoise-processor.js
 // Кладёшь рядом с index.html + rnnoise.wasm + rnnoise.js
-// Оба файла: github.com/jitsi/rnnoise-wasm → ветка master → папка dist/
 
 const FRAME = 480;
 
@@ -13,16 +12,16 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
     this._inPtr  = 0;
     this._outPtr = 0;
 
-    this._inBuf  = new Float32Array(FRAME);  // накапливаем входные сэмплы
-    this._outBuf = new Float32Array(FRAME);  // храним обработанные
-    this._inPos  = 0;  // сколько накоплено во входном
-    this._outPos = 0;  // сколько уже прочитано из выходного
-    this._outN   = 0;  // сколько готово в выходном
+    this._inBuf  = new Float32Array(FRAME);
+    this._outBuf = new Float32Array(FRAME);
+    this._inPos  = 0;
+    this._outPos = 0;
+    this._outN   = 0;
 
     this.port.onmessage = async ({ data }) => {
       if (data.type !== 'init') return;
       try {
-        await this._load(data.wasmBuffer);
+        await this._load(data.wasmBuffer, data.rnnoiseJs);
         this.port.postMessage({ type: 'ready', success: true });
       } catch (e) {
         this.port.postMessage({ type: 'ready', success: false, error: String(e) });
@@ -30,8 +29,11 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
     };
   }
 
-  async _load(wasmBuf) {
-    importScripts('./rnnoise.js');
+  async _load(wasmBuf, rnnoiseJsText) {
+    // Выполняем текст rnnoise.js прямо здесь — так обходим отсутствие importScripts
+    const fn = new Function(rnnoiseJsText + '\nreturn createRNNWasmModule;');
+    const createRNNWasmModule = fn();
+
     const mod = await new Promise((res, rej) =>
       createRNNWasmModule({ wasmBinary: wasmBuf })['ready'].then(res).catch(rej)
     );
@@ -62,10 +64,8 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
 
     if (!this._ready) { out.set(inp); return true; }
 
-    let i = 0; // позиция в inp/out (оба всегда 128)
-
+    let i = 0;
     while (i < out.length) {
-      // Сначала отдаём всё что уже обработано
       if (this._outN > 0) {
         const take = Math.min(out.length - i, this._outN);
         out.set(this._outBuf.subarray(this._outPos, this._outPos + take), i);
@@ -74,24 +74,17 @@ class RNNoiseProcessor extends AudioWorkletProcessor {
         i            += take;
         continue;
       }
-
-      // Выходной буфер пуст — накапливаем входные до FRAME
-      const need = FRAME - this._inPos;
-      const have = inp.length - i;
-      const copy = Math.min(need, have);
+      const copy = Math.min(FRAME - this._inPos, inp.length - i);
       this._inBuf.set(inp.subarray(i, i + copy), this._inPos);
       this._inPos += copy;
       i           += copy;
-
       if (this._inPos === FRAME) {
-        this._denoise(); // готово — обрабатываем и кладём в outBuf
+        this._denoise();
       } else {
-        // Входных не хватило до 480 — тишина на остаток выходного
         out.fill(0, i);
         break;
       }
     }
-
     return true;
   }
 }
